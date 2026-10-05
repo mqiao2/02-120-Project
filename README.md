@@ -1,1 +1,3 @@
-# 02-120-Project
+# Project for 02-120 Programming For Scientists
+# Description, explanations here.
+

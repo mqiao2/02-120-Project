@@ -1,4 +1,4 @@
 # Who I am, how I like to learn, what I am building.
 
 This is the semester project for Programming for Scientists, an application-based introductory course on using Python to solve scientific problems. I am a first-year college undergraduate with minimal programming experience, and this course accounts for the lack of experience by making the project based on interaction with Claude. That is, Claude will be doing most of the programming while I manage.
-The goal of the project is to model a scientific phenomenon and publish it online, using current literature to check its results.  
+The goal of the project is to model a scientific phenomenon and publish it online, using current literature to check its results. I am be calculating ocean acidification using known atmospheric CO2 concentrations measured at the Mauna Loa Observatory, annual average ocean temperature levels by latitude/longitude since ___, and corresponding salinity levels. The results can then be compared against the known pH of ocean waters, ___. 

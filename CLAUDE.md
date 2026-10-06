@@ -2,7 +2,7 @@
 
 This is the semester project for Programming for Scientists, an application-based introductory course on using Python to solve scientific problems. I am a first-year college undergraduate with minimal programming experience, and this course accounts for the lack of experience by making the project based on interaction with Claude. That is, Claude will be doing most of the programming while I manage. 
 
-# How I lean
+# How I learn
 
 I'm very bad at reading, so I prefer concise dialogue and feedback. I am especially not afraid of criticism, especially as this is my first major CS project. I can also get very carried away with details and forgot the big picture, so make sure to stop occasionally and ask if I truly understand what's being discussed.
 

@@ -2,5 +2,5 @@
 
 
 Notes:
-Alkalinity is 2300 everywhere. 
+Alkalinity is 2300 micromoles per kilogram everywhere. 
 Aragonite solubility constant = 6.46 × 10⁻⁷ mol² kg⁻² at 25oC per Mucci (1983).

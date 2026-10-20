@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))   # ocean_chem.py and build_grid.py live in the root
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # shared modules live in code/
 
 import matplotlib.pyplot as plt
 import numpy as np

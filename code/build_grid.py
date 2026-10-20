@@ -11,7 +11,7 @@ import pandas as pd
 
 import ocean_chem as oc
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 CO2_LEVELS = np.arange(250, 1001, 5)
 
 

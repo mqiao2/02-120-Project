@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ocean pH Estimator</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f8fb; --card: #ffffff; --text: #14212b; --muted: #566975;
+      --accent: #0b6e99; --line: #d3dee6; --error: #b3261e;
+      --ok: #1b6e3c; --warn: #b3261e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1920; --card: #15242d; --text: #e6eef3; --muted: #9db2c0;
+        --accent: #4cb8e6; --line: #2a3c48; --error: #ff8a80;
+        --ok: #7bd9a0; --warn: #ff8a80;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 1rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    main { max-width: 36rem; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    h1 { font-size: 1.75rem; line-height: 1.2; margin: 0 0 .5rem; }
+    .lede { color: var(--muted); margin: 0 0 1.5rem; }
+    .card {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 1.25rem;
+    }
+    .control { margin-bottom: 1.5rem; }
+    label { display: flex; justify-content: space-between; gap: 1rem; font-weight: 600; }
+    .value-out { color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    input[type=range] { width: 100%; margin: .5rem 0 0; accent-color: var(--accent); }
+    .hint { color: var(--muted); font-size: .875rem; margin: .25rem 0 0; }
+    .result { border-top: 1px solid var(--line); padding-top: 1.25rem; text-align: center; }
+    .results { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 1rem; }
+    .result .label { color: var(--muted); }
+    .result .value {
+      font-size: clamp(2.25rem, 11vw, 3.5rem); font-weight: 700; line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .saturation { font-weight: 600; margin: .75rem 0 0; min-height: 3rem; }
+    .saturation.ok { color: var(--ok); }
+    .saturation.corrosive { color: var(--warn); }
+    .error { color: var(--error); min-height: 1.5rem; margin: .25rem 0 0; }
+    .note { color: var(--muted); font-size: .875rem; margin: 1rem 0 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Ocean surface pH estimator</h1>
+    <p class="lede">Slide the controls to see how air CO₂, temperature and salinity change
+      the pH of surface seawater and whether it is corrosive to aragonite, the mineral
+      in many shells.</p>
+
+    <div class="card">
+      <div class="control">
+        <label for="co2">Atmospheric CO₂ <span id="co2-out" class="value-out" aria-hidden="true"></span></label>
+        <input id="co2" type="range" min="250" max="1000" step="1" value="425">
+        <p class="hint">Preindustrial ≈ 280 ppm. Mauna Loa, early Aug 2025: ≈ 425 ppm.</p>
+      </div>
+
+      <div class="control">
+        <label for="temp">Sea surface temperature <span id="temp-out" class="value-out" aria-hidden="true"></span></label>
+        <input id="temp" type="range" min="-2" max="35" step="0.5" value="15">
+      </div>
+
+      <div class="control">
+        <label for="sal">Salinity <span id="sal-out" class="value-out" aria-hidden="true"></span></label>
+        <input id="sal" type="range" min="20" max="42" step="0.5" value="35">
+      </div>
+
+      <div class="result">
+        <div role="status">
+          <div class="results">
+            <div>
+              <div class="label">Surface pH</div>
+              <div id="ph" class="value">–</div>
+            </div>
+            <div>
+              <div class="label">Aragonite Ω</div>
+              <div id="omega" class="value">–</div>
+            </div>
+          </div>
+          <p id="saturation" class="saturation"></p>
+        </div>
+        <p id="error" class="error" role="alert"></p>
+      </div>
+    </div>
+
+    <p class="note">Assumes surface water is in equilibrium with the air and total
+      alkalinity is fixed at 2300 µmol/kg, a typical open-ocean value. In the real ocean
+      alkalinity rises and falls with salinity, so treat low-salinity settings (below
+      about 30) as what-ifs. Not for estuaries or coastal water. Estimates only:
+      published equilibrium constants disagree by about 0.01 pH (up to 0.05 in the
+      coldest and warmest water) and by a few percent in Ω.</p>
+    <p class="note">Ω (omega) is the aragonite saturation state. Below 1, seawater is
+      corrosive to aragonite, the mineral in shells such as those of pteropods. Above 1,
+      aragonite does not dissolve, but shell-building organisms are already stressed as
+      Ω falls.</p>
+  </main>
+
+  <script>
+    const inputs = {
+      co2:  {el: document.getElementById("co2"),  out: document.getElementById("co2-out"),  unit: " ppm", digits: 0},
+      temp: {el: document.getElementById("temp"), out: document.getElementById("temp-out"), unit: " °C",  digits: 1},
+      sal:  {el: document.getElementById("sal"),  out: document.getElementById("sal-out"),  unit: " PSU", digits: 1},
+    };
+    const phEl = document.getElementById("ph");
+    const omegaEl = document.getElementById("omega");
+    const saturationEl = document.getElementById("saturation");
+    const errorEl = document.getElementById("error");
+    let timer = null;
+    let controller = null;
+
+    function showValues() {
+      for (const {el, out, unit, digits} of Object.values(inputs)) {
+        const text = Number(el.value).toFixed(digits) + unit;
+        out.textContent = text;
+        el.setAttribute("aria-valuetext", text);   // a screen reader says "425 ppm", not a bare number
+      }
+    }
+
+    // Aragonite dissolves when omega < 1, so 1 is the "corrosive" threshold.
+    function showSaturation(omega) {
+      const shown = Number(omega.toFixed(2));          // judge the number the user sees
+      if (shown < 1) {
+        saturationEl.textContent = "⚠ Undersaturated (Ω < 1): corrosive, aragonite shells dissolve.";
+        saturationEl.className = "saturation corrosive";
+      } else if (shown > 1) {
+        saturationEl.textContent = "✓ Supersaturated (Ω > 1): aragonite is stable, but shell-building gets harder as Ω falls.";
+        saturationEl.className = "saturation ok";
+      } else {
+        saturationEl.textContent = "Right at the threshold (Ω = 1).";
+        saturationEl.className = "saturation";
+      }
+    }
+
+    async function updateResults() {
+      if (controller) controller.abort();          // drop an older, slower request
+      controller = new AbortController();
+      const query = new URLSearchParams();
+      for (const [name, {el}] of Object.entries(inputs)) query.set(name, el.value);
+      try {
+        const response = await fetch("/api/ph?" + query, {signal: controller.signal});
+        const data = await response.json();
+        if (!response.ok) throw new Error("Request failed");
+        phEl.textContent = data.pH.toFixed(3);
+        omegaEl.textContent = data.omega.toFixed(2);
+        showSaturation(data.omega);
+        errorEl.textContent = "";
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        phEl.textContent = "–";
+        omegaEl.textContent = "–";
+        saturationEl.textContent = "";
+        saturationEl.className = "saturation";
+        errorEl.textContent = "Couldn't get an estimate. Move a slider or reload the page to try again.";
+      }
+    }
+
+    for (const {el} of Object.values(inputs)) {
+      el.addEventListener("input", () => {
+        showValues();
+        clearTimeout(timer);
+        timer = setTimeout(updateResults, 120);    // wait until the slider pauses
+      });
+    }
+
+    showValues();
+    updateResults();
+  </script>
+</body>
+</html>

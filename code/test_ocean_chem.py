@@ -16,10 +16,11 @@ close(np.log10(oc.k2(25, 35)), -8.9660, 1e-3, "log10 K2")
 close(np.log(oc.kb(25, 35)), -19.7964, 1e-3, "ln KB")
 close(np.log(oc.kw(25, 35)), -30.434, 1e-3, "ln KW")
 close(oc.water_vapor_pressure(25, 35) * 101.325, 3.1106, 0.02, "H2O vapor kPa")
-close(oc.fugacity_coefficient(25), 0.9964, 0.0005, "CO2 fugacity coeff")
+close(oc.fugacity_coefficient(25), 0.9968, 0.0001, "CO2 fugacity coeff (guide SOP 24, 25 C)")
 
 # 2. Aragonite Ksp at 25 C, S = 35: literature ~ 6.7e-7 (mol/kg)^2
 close(oc.ksp_aragonite(25, 35) / 1e-7, 6.65, 0.3, "Ksp aragonite (1e-7)")
+close(oc.calcium(35) * 1e3, 10.285, 0.001, "calcium mmol/kg at S = 35")
 
 # 3. Solver reproduces the alkalinity it was given
 r = oc.carbonate_system(400, 25, 35)

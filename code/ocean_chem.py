@@ -103,8 +103,9 @@ def total_boron(s):
 
 
 def calcium(s):
-    """Calcium ion, mol/kg (conservative with salinity)."""
-    return 0.01028 * s / 35.0
+    """Calcium ion, mol/kg, proportional to salinity (Riley and Tongudai 1967,
+    the convention CO2SYS uses): 10.285 mmol/kg at S = 35."""
+    return 0.02128 / 40.087 * s / 1.80655
 
 
 # --------------------------------------------------------------------- solver

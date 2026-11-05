@@ -4,6 +4,9 @@ GET /api/ph?co2=425&temp=15&sal=35 returns the surface-ocean pH and the
 aragonite saturation state (omega) as JSON, along with the inputs it used.
 The page with the sliders is public/index.html.
 
+Keep app.py, requirements.txt, .python-version and public/ at the top level of
+the repo: Vercel only looks for them there (code/test_app.py checks this).
+
 Run locally: flask --app app run --port 5055
 """
 

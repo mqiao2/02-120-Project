@@ -1,5 +1,6 @@
-# Everything for working on the project locally:  pip install -r requirements-dev.txt
-# requirements.txt (what Vercel installs for the website) is kept to the minimum.
--r requirements.txt
+# Everything for working on the project locally:
+#   pip install -r code/requirements/requirements-dev.txt
+# The top-level requirements.txt (what Vercel installs for the website) is kept to the minimum.
+-r ../../requirements.txt
 pandas
 matplotlib

@@ -12,6 +12,14 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Vercel only looks for these at the top level of the repo. If one is moved, the
+# website silently stops deploying, so fail here first with a clear message.
+for name in ("app.py", "requirements.txt", ".python-version", "public/index.html"):
+    assert (ROOT / name).is_file(), f"{name} must stay at the top level of the repo (Vercel looks for it there)"
+assert "flask" in (ROOT / "requirements.txt").read_text().lower(), "requirements.txt must list flask"
+print("ok  Vercel's files are at the top level: app.py, requirements.txt, .python-version, public/index.html")
+
 sys.path.insert(0, str(ROOT))
 import app as web  # noqa: E402
 

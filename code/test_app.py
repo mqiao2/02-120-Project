@@ -130,11 +130,24 @@ for query, word in [("", "co2"), ("co2=425&temp=15", "sal"), ("co2=abc&temp=15&s
 assert client.post("/api/ph?" + "co2=425&temp=15&sal=35").status_code == 405
 print("ok  bad input -> 400 with message; POST -> 405")
 
-# 9. Only the page and the API are served: no repo files leak
+# 9. Only the page, the API and the files in public/ are served: no repo files leak,
+#    and no path can climb out of public/
 for path in ("/app.py", "/code/ocean_chem.py", "/requirements.txt", "/journal/x.jsonl",
-             "/sources/mauna_loa_co2.csv", "/static/index.html", "/public/index.html"):
-    assert client.get(path).status_code == 404, path
-print("ok  repo files are not served")
+             "/sources/mauna_loa_co2.csv", "/static/index.html", "/public/index.html",
+             "/../app.py", "/data/../../app.py", "/%2e%2e/app.py", "/data/%2e%2e/%2e%2e/app.py",
+             "/data/", "/data/nope.json"):
+    response = client.get(path)
+    assert response.status_code == 404, (path, response.status_code)
+    response.close()
+print("ok  repo files are not served; paths that climb out of public/ are refused")
+
+# 9b. Like Vercel, locally the files in public/ are served from the site root (the globe needs these)
+for path, kind in (("/globe.js", "javascript"), ("/data/surface_1deg.json", "json")):
+    response = client.get(path)
+    assert response.status_code == 200 and kind in response.headers["Content-Type"], (path, response.headers)
+    assert len(response.get_data()) > 1000, path
+    response.close()
+print("ok  /globe.js and /data/surface_1deg.json are served")
 
 # 10. The home page is served and has the three sliders and the assumption note
 home = client.get("/")

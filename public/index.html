@@ -10,13 +10,13 @@
       color-scheme: light dark;
       --bg: #f4f8fb; --card: #ffffff; --text: #14212b; --muted: #566975;
       --accent: #0b6e99; --line: #d3dee6; --error: #b3261e;
-      --ok: #1b6e3c; --warn: #b3261e;
+      --ok: #1b6e3c; --warn: #b3261e; --on-accent: #ffffff;
     }
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #0e1920; --card: #15242d; --text: #e6eef3; --muted: #9db2c0;
         --accent: #4cb8e6; --line: #2a3c48; --error: #ff8a80;
-        --ok: #7bd9a0; --warn: #ff8a80;
+        --ok: #7bd9a0; --warn: #ff8a80; --on-accent: #0e1920;
       }
     }
     * { box-sizing: border-box; }
@@ -48,6 +48,59 @@
     .saturation.corrosive { color: var(--warn); }
     .error { color: var(--error); min-height: 1.5rem; margin: .25rem 0 0; }
     .note { color: var(--muted); font-size: .875rem; margin: 1rem 0 0; }
+
+    /* the globe */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+    }
+    .globe-card { margin-top: 2rem; }
+    .globe-card h2 { font-size: 1.25rem; line-height: 1.3; margin: 0 0 .25rem; }
+    .layer-picker { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+    .layer-picker input { position: absolute; opacity: 0; pointer-events: none; }
+    .layer-picker label {
+      display: inline-block; padding: .4rem 1rem; border: 1px solid var(--muted);
+      border-radius: 999px; cursor: pointer; font-weight: 600; background: var(--card);
+    }
+    .layer-picker input:checked + label {
+      background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+    }
+    .layer-picker input:checked + label::before { content: "\2713\00a0"; }   /* a check mark: the choice is not shown by color alone */
+    .layer-picker input:focus-visible + label { outline: 3px solid var(--accent); outline-offset: 2px; }
+    @media (forced-colors: active) {
+      .layer-picker input:checked + label { outline: 2px solid Highlight; }
+    }
+    /* never taller than the screen, so on a phone held sideways the buttons and values stay in view */
+    .globe-stage { position: relative; max-width: min(520px, 75vh); max-width: min(520px, 75svh); margin: 0 auto; }
+    #globe {
+      display: block; width: 100%; aspect-ratio: 1; cursor: grab;
+      touch-action: none; user-select: none; -webkit-user-select: none; border-radius: 12px;
+    }
+    #globe.dragging { cursor: grabbing; }
+    .globe-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; margin: .75rem 0 0; }
+    .globe-tools button {
+      width: 2.5rem; height: 2.5rem; font-size: 1.25rem; line-height: 1; cursor: pointer;
+      color: var(--text); background: var(--card); border: 1px solid var(--muted); border-radius: 8px;
+    }
+    .globe-tools button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+    .globe-status {
+      position: absolute; inset: 0; display: grid; place-items: center; margin: 0;
+      color: var(--muted); text-align: center; padding: 1rem; pointer-events: none;
+    }
+    .globe-status[hidden] { display: none; }
+    .globe-center { text-align: center; margin: .75rem 0 0; }
+    .globe-readout { text-align: center; font-weight: 600; margin: .25rem 0 .5rem; min-height: 1.5rem; font-variant-numeric: tabular-nums; }
+    .globe-description { text-align: center; margin: 0 0 1rem; }
+    .legend { max-width: 520px; margin: 0 auto; }
+    .legend[hidden] { display: none; }
+    .legend-title { font-size: .875rem; font-weight: 600; margin-bottom: .25rem; }
+    .legend-bar { height: .75rem; border-radius: 6px; border: 1px solid var(--muted); }
+    .legend-ticks { position: relative; height: 1.5rem; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .legend-ticks span { position: absolute; top: .15rem; transform: translateX(-50%); white-space: nowrap; }
+    .legend-ticks span.min { left: 0; transform: none; }
+    .legend-ticks span.max { right: 0; transform: none; }
+    .legend-land { max-width: 520px; margin: .25rem auto 0; font-size: .8rem; color: var(--muted); }
+    .swatch { display: inline-block; width: .9rem; height: .9rem; border-radius: 3px; vertical-align: -.1rem; margin-right: .35rem; background: #c4bfae; border: 1px solid var(--muted); }
   </style>
 </head>
 <body>
@@ -102,6 +155,53 @@
       corrosive to aragonite, the mineral in shells such as those of pteropods. Above 1,
       aragonite does not dissolve, but shell-building organisms are already stressed as
       Ω falls.</p>
+
+    <section class="card globe-card" aria-labelledby="globe-title">
+      <h2 id="globe-title">Where is the ocean warm, cold, salty or fresh?</h2>
+      <p class="hint">Drag the globe to turn it, or use the arrow buttons. Pick a layer to color the sea surface.</p>
+
+      <div class="layer-picker" role="radiogroup" aria-label="Globe layer">
+        <input id="layer-temperature" type="radio" name="layer" value="temperature" checked>
+        <label for="layer-temperature">Temperature</label>
+        <input id="layer-salinity" type="radio" name="layer" value="salinity">
+        <label for="layer-salinity">Salinity</label>
+        <input id="layer-plain" type="radio" name="layer" value="plain">
+        <label for="layer-plain">Plain</label>
+      </div>
+
+      <div class="globe-stage">
+        <canvas id="globe" role="img" aria-label="Globe colored by sea surface temperature"
+                aria-describedby="globe-description"></canvas>
+        <p id="globe-status" class="globe-status" role="status" hidden></p>
+      </div>
+      <noscript><p class="note">The globe needs JavaScript.</p></noscript>
+
+      <div class="globe-tools" role="group" aria-label="Turn and zoom the globe">
+        <button type="button" id="globe-west" aria-label="Turn west">&larr;</button>
+        <button type="button" id="globe-north" aria-label="Turn north">&uarr;</button>
+        <button type="button" id="globe-south" aria-label="Turn south">&darr;</button>
+        <button type="button" id="globe-east" aria-label="Turn east">&rarr;</button>
+        <button type="button" id="globe-zoom-out" aria-label="Zoom out">&minus;</button>
+        <button type="button" id="globe-zoom-in" aria-label="Zoom in">+</button>
+        <button type="button" id="globe-reset" aria-label="Reset the view">&#8634;</button>
+      </div>
+      <p id="globe-center" class="hint globe-center"></p>
+      <p id="globe-readout" class="globe-readout"></p>
+      <p id="globe-description" class="hint globe-description"></p>
+      <p id="globe-announce" class="sr-only" role="status"></p>
+
+      <div id="globe-legend" class="legend">
+        <div id="legend-title" class="legend-title"></div>
+        <div id="legend-bar" class="legend-bar"></div>
+        <div id="legend-ticks" class="legend-ticks"></div>
+      </div>
+      <p class="legend-land"><span class="swatch"></span>Land, or no data</p>
+
+      <p class="note">Data: NOAA World Ocean Atlas 2023, 1° grid: the average of all measurements
+        from 1955 to 2022, over all months, at the surface (the top 10 m where the surface value
+        is missing). Temperature colors: ColorBrewer RdYlBu. Salinity colors: viridis, a scale
+        that stays readable for color-blind viewers.</p>
+    </section>
   </main>
 
   <script>
@@ -174,5 +274,6 @@
     showValues();
     updateResults();
   </script>
+  <script src="/globe.js" defer onerror="var s = document.getElementById('globe-status'); s.hidden = false; s.textContent = 'The globe could not be loaded. Reload the page to try again.';"></script>
 </body>
 </html>

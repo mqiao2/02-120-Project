@@ -109,7 +109,10 @@ function makePage(options) {
               estimate: add("co2-pick-estimate"), link: add("co2-pick-link"), errors: errors };
   page.link.hidden = true;
   var winListeners = {};
-  var window = { addEventListener: function (t, fn) { (winListeners[t] = winListeners[t] || []).push(fn); } };
+  page.told = [];                                                     // what the graph told the rest of the page
+  var window = { addEventListener: function (t, fn) { (winListeners[t] = winListeners[t] || []).push(fn); },
+                 dispatchEvent: function (ev) { if (ev.type === "co2year") page.told.push({ detail: ev.detail, co2Then: page.co2 ? page.co2.value : null }); } };
+  function CustomEv(type, init) { this.type = type; this.detail = init ? init.detail : undefined; }
   page.calculatorSays = function (detail) { (winListeners.estimate || []).forEach(function (fn) { fn({ detail: detail }); }); };
   page.status.textContent = "Loading CO₂ data…"; page.picker.disabled = true;
   if (!options.noCalculator) {
@@ -129,8 +132,8 @@ function makePage(options) {
              : mode === "unsorted" ? { years: [2001, 2000], ppm: [371, 370] } : chartData;
     return new SyncPromise(function (res) { res({ ok: true, json: function () { return new SyncPromise(function (r) { r(body); }); } }); });
   }
-  var factory = new Function("document", "fetch", "Event", "window", chartSource + "\n;return Co2Chart;");
-  try { page.api = factory(document, fetch, Ev, window); } catch (e) { page.loadError = String(e); }
+  var factory = new Function("document", "fetch", "Event", "window", "CustomEvent", chartSource + "\n;return Co2Chart;");
+  try { page.api = factory(document, fetch, Ev, window, CustomEv); } catch (e) { page.loadError = String(e); }
   page.pick = function (i) { page.picker.value = String(i); page.picker.dispatchEvent(new Ev("input")); };
   page.clickAtYear = function (year) {        // a click on the graph above a year, in screen pixels
     var x = page.api.scales(chartData.years).x(year) / page.api.W * 300 + 10;
@@ -200,6 +203,7 @@ else:
       k.press("Enter"); out.enter = { co2: k.co2.value, picker: k.picker.value };
       var c = makePage(); c.change(); out.change = { co2: c.co2.value, events: c.co2.inputEvents };
       c.change(); out.change.again = c.co2.inputEvents;                // already picked: no second event
+      out.told = p.told.slice();
       out.cleared = { message: p.message.textContent, out: p.out.textContent, marker: p.svg.innerHTML.indexOf('class="marker"') >= 0, co2: p.co2.value };
       out.failures = ["reject", "404", "short", "nan", "unsorted"].map(function (mode) {
         var f = makePage({ fetch: mode }); f.pick(3);
@@ -233,7 +237,12 @@ else:
     print("ok  Enter or a click on the thumb picks the latest year, which moving the thumb can't")
     print("ok  clicking the graph above 2000 picks 2000 and moves the year picker there")
     assert P["cleared"] == {"message": "", "out": "Pick a year", "marker": False, "co2": "600"}, P["cleared"]
+    v2000 = ppm[years.index(2000)]
+    assert P["told"] == [{"detail": {"year": 1990, "ppm": v1990}, "co2Then": "425"},
+                         {"detail": {"year": 2000, "ppm": v2000}, "co2Then": str(round(v1990))},
+                         {"detail": None, "co2Then": "600"}], P["told"]
     print("ok  moving the CO2 slider by hand clears the year")
+    print("ok  the graph tells the page (the globe) each picked year before moving the CO2 slider, and null when it's cleared")
     for row in P["failures"]:
         assert row["status"] == "Couldn't load the CO₂ data. Reload the page to try again." and row["disabled"] is True, row
         assert row["co2"] == "425" and row["errors"] == [], row

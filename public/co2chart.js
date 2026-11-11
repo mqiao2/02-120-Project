@@ -106,6 +106,7 @@ var Co2Chart = (function () {
       if (estimateEl) estimateEl.textContent = "";
       var wanted = Math.round(data.ppm[i]);
       var set = Math.max(Number(co2.min), Math.min(Number(co2.max), wanted));
+      tellPage({ year: data.years[i], ppm: data.ppm[i] });   // before the calculator's new estimate comes back
       applying = true;
       try {
         co2.value = String(set);
@@ -118,12 +119,18 @@ var Co2Chart = (function () {
       if (linkEl) linkEl.hidden = false;
     }
 
+    // Tell the rest of the page (the globe) which year the calculator's CO2 comes from, or null for none.
+    function tellPage(detail) {
+      if (typeof window !== "undefined" && window.dispatchEvent) window.dispatchEvent(new CustomEvent("co2year", { detail: detail }));
+    }
+
     function clearPick() {
       selected = -1; messageEl.textContent = ""; yearOut.textContent = "Pick a year";
       picker.setAttribute("aria-valuetext", "No year picked");
       if (estimateEl) estimateEl.textContent = "";
       if (linkEl) linkEl.hidden = true;
       draw();
+      tellPage(null);
     }
 
     // The calculator reports each estimate; while it still uses the picked year's CO2, show it here,

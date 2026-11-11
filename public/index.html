@@ -24,7 +24,11 @@
       margin: 0; background: var(--bg); color: var(--text);
       font: 1rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }
-    main { max-width: 36rem; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    main { max-width: 72rem; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .top { max-width: 36rem; margin: 0 auto; }
+    /* below the calculator: the globe on the left, the CO2 graph on the right (stacked on narrow screens) */
+    .explore { display: grid; gap: 1.5rem; margin-top: 2rem; align-items: start; }
+    @media (min-width: 62rem) { .explore { grid-template-columns: 1fr 1fr; } }
     h1 { font-size: 1.75rem; line-height: 1.2; margin: 0 0 .5rem; }
     .lede { color: var(--muted); margin: 0 0 1.5rem; }
     .card {
@@ -54,7 +58,19 @@
       position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
       overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
     }
-    .globe-card { margin-top: 2rem; }
+    .globe-card, .co2-card { min-width: 0; }
+    .co2-card h2 { font-size: 1.25rem; line-height: 1.3; margin: 0 0 .25rem; }
+    #co2-chart { display: block; width: 100%; height: auto; margin: 1rem 0 .5rem; cursor: crosshair; }
+    #co2-chart .grid { stroke: var(--line); stroke-width: 1; }
+    #co2-chart .axis { stroke: var(--muted); stroke-width: 1; }
+    #co2-chart .tick, #co2-chart .axis-label { fill: var(--muted); font-size: 16px; }
+    #co2-chart .preindustrial { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 6 5; }
+    #co2-chart .note-label { fill: var(--muted); font-size: 15px; }
+    #co2-chart .line { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+    #co2-chart .marker { fill: var(--card); stroke: var(--text); stroke-width: 2.5; }
+    #co2-chart .marker-line { stroke: var(--text); stroke-width: 1; stroke-dasharray: 3 3; opacity: .5; }
+    #co2-chart .marker-label { fill: var(--text); font-size: 17px; font-weight: 600; }
+    .co2-pick { min-height: 3rem; margin: .5rem 0 0; font-size: .9375rem; }
     .globe-card h2 { font-size: 1.25rem; line-height: 1.3; margin: 0 0 .25rem; }
     .layer-picker { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
     .layer-picker input { position: absolute; opacity: 0; pointer-events: none; }
@@ -114,6 +130,7 @@
 </head>
 <body>
   <main>
+    <div class="top">
     <h1>Ocean surface pH estimator</h1>
     <p class="lede">Slide the controls to see how air CO₂, temperature and salinity change
       the pH of surface seawater and whether it is corrosive to aragonite, the mineral
@@ -167,6 +184,9 @@
       aragonite does not dissolve, but shell-building organisms are already stressed as
       Ω falls.</p>
 
+    </div>
+
+    <div class="explore">
     <section class="card globe-card" aria-labelledby="globe-title">
       <h2 id="globe-title">Where is the ocean warm, cold, salty or fresh?</h2>
       <p class="hint">Drag to turn the globe, or use the buttons. <strong>Click or tap a spot to use its temperature
@@ -217,6 +237,22 @@
         is missing). Temperature colors: ColorBrewer RdYlBu. Salinity colors: viridis, a scale
         that stays readable for color-blind viewers.</p>
     </section>
+
+    <section class="card co2-card" aria-labelledby="co2-title">
+      <h2 id="co2-title">How has CO₂ in the air changed?</h2>
+      <p class="hint">Yearly averages at Mauna Loa, Hawaii. <strong>Pick a year, or click the graph, to use that
+        year's CO₂ in the calculator above.</strong></p>
+      <svg id="co2-chart" viewBox="0 0 480 300" role="img" aria-label="Graph of yearly CO₂ at Mauna Loa"></svg>
+      <p id="co2-status" class="hint" role="status">Loading CO₂ data…</p>
+      <div class="control">
+        <label for="co2-year">Year <span id="co2-year-out" class="value-out" aria-hidden="true">Pick a year</span></label>
+        <input id="co2-year" type="range" min="0" max="0" step="1" value="0" disabled>
+      </div>
+      <p id="co2-pick" class="co2-pick" role="status"></p>
+      <p class="note">Data: NOAA Mauna Loa Observatory. Each year is the average of its 12 monthly averages; years
+        with missing months (1958, 1964 and 2025 so far) are left out. Before about 1750 the air held about 280 ppm.</p>
+    </section>
+    </div>
   </main>
 
   <script>
@@ -291,6 +327,7 @@
     showValues();
     updateResults();
   </script>
+  <script src="/co2chart.js" defer onerror="var s = document.getElementById('co2-status'); s.textContent = 'The CO₂ graph could not be loaded. Reload the page to try again.';"></script>
   <script src="/globe.js" defer onerror="var s = document.getElementById('globe-status'); s.hidden = false; s.textContent = 'The globe could not be loaded. Reload the page to try again.';"></script>
 </body>
 </html>

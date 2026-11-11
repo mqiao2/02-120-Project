@@ -232,6 +232,8 @@ var OceanGlobe = (function () {
     var picked = null;           // the spot the calculator was last set from: { lat, lon, temperature, salinity, exact }
     var applying = false;        // true while we move the calculator's sliders ourselves
     var awaiting = false;        // true while we wait for the calculator's estimate for that spot
+    var co2Year = null;          // the year picked on the CO2 graph, { year, ppm }, while the calculator uses it
+    var resultText = "";         // the calculator's latest result for the picked spot
     var loadFailed = false;      // true if the ocean data could not be loaded
 
     function globeRadius(width) { return width / 2 * 0.94 * state.zoom; }
@@ -388,8 +390,16 @@ var OceanGlobe = (function () {
 
     function showPick(text, linked) {
       pickEl.textContent = text;
-      pickEstimateEl.textContent = "";
+      resultText = "";
+      showEstimate();
       pickLink.hidden = !linked;
+    }
+
+    // The line after the spot: the CO2 year (if one is picked on the graph), then the result.
+    function showEstimate() {
+      if (!awaiting || !picked) { pickEstimateEl.textContent = ""; return; }
+      var year = co2Year ? "Atmospheric CO₂ in " + co2Year.year + " was " + co2Year.ppm.toFixed(1) + " ppm." : "";
+      pickEstimateEl.textContent = [year, resultText].filter(Boolean).join(" ");
     }
 
     function sendToCalculator(lat, lon) {
@@ -417,8 +427,8 @@ var OceanGlobe = (function () {
       var tempSet = setSlider("temp", t), salSet = setSlider("sal", s);
       var notes = [];
       if (tempSet.outOfRange) {                        // only a few cells, by less than half a degree
-        notes.push("Temperature here is " + formatValue(t, LAYERS.temperature) + ", just outside the calculator's range (" +
-                   tempSet.low + " to " + tempSet.high + " °C), so it uses " + tempSet.value.toFixed(1) + " °C.");
+        notes.push("That temperature is just outside the calculator's range (" + tempSet.low + " to " + tempSet.high +
+                   " °C), so it uses " + tempSet.value.toFixed(1) + " °C.");
       }
       if (salSet.value < 30) {
         notes.push("Below 30 PSU the real alkalinity is probably lower than the model's 2300 µmol/kg, " +
@@ -426,8 +436,8 @@ var OceanGlobe = (function () {
       }
       picked = { lat: lat, lon: lon, temperature: tempSet.value, salinity: salSet.value };
       awaiting = true;                                 // follow the calculator's estimates while it matches this spot
-      showPick("The calculator now uses " + tempSet.value.toFixed(1) + " °C and " + salSet.value.toFixed(1) + " PSU from " +
-               where + " (CO₂ unchanged)." + (notes.length ? " " + notes.join(" ") : ""), true);
+      showPick("At " + where + ", average annual temperature is " + formatValue(t, { digits: 1, unit: "°C" }) +
+               " and salinity is " + salSet.value.toFixed(1) + " PSU." + (notes.length ? " " + notes.join(" ") : ""), true);
       requestDraw(false);                              // to put the ring on the globe
     }
 
@@ -436,10 +446,22 @@ var OceanGlobe = (function () {
     window.addEventListener("estimate", function (e) {
       var d = e.detail;
       if (!awaiting || !picked || !d) return;
-      if (d.error) { pickEstimateEl.textContent = "The calculator couldn't get an estimate; click the spot again to retry."; return; }
+      if (d.error) { resultText = "The calculator couldn't get an estimate; click the spot again to retry."; showEstimate(); return; }
       if (typeof d.pH !== "number") return;
       if (Math.abs(d.temp - picked.temperature) > 0.05 || Math.abs(d.sal - picked.salinity) > 0.05) return;   // not for this spot
-      pickEstimateEl.textContent = "At " + Math.round(d.co2) + " ppm CO₂: pH " + d.pH.toFixed(3) + ", Ω " + d.omega.toFixed(2) + ".";
+      var co2El = document.getElementById("co2");
+      if (co2El && Math.round(d.co2) !== Number(co2El.value)) return;   // a late answer for an older CO2
+      resultText = "Result: pH " + d.pH.toFixed(3) + ", Ω " + d.omega.toFixed(2) + ".";
+      showEstimate();
+    });
+
+    // The CO2 graph says when a year is picked ({ year, ppm }) or no longer used (null). The CO2
+    // changed, so the old result is out of date until the calculator's next estimate.
+    window.addEventListener("co2year", function (e) {
+      var d = e.detail;
+      co2Year = d && typeof d.year === "number" && typeof d.ppm === "number" ? { year: d.year, ppm: d.ppm } : null;
+      resultText = "";
+      showEstimate();
     });
 
     // If someone moves the temperature or salinity slider themselves, the calculator no longer

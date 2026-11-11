@@ -571,6 +571,21 @@ function msg(env) { return { text: env.pickText.textContent, est: env.pickEstima
   var b = loaded(); b.tap(22.5, -158.5);
   b.estimate({ co2: 425, temp: 20, sal: 35.1, pH: 7.9, omega: 1.1 });
   out.pickOtherInputs = msg(b);
+  // a year picked on the CO2 graph
+  var y = loaded(); y.tap(22.5, -158.5); y.run();
+  y.estimate({ co2: 425, temp: 24.9, sal: 35.1, pH: 8.0312, omega: 3.4567 });
+  y.co2year({ year: 1981, ppm: 339.93 }); y.userMoves("co2", 340); var y1 = msg(y);                         // the old result is out of date
+  y.estimate({ co2: 340, temp: 24.9, sal: 35.1, pH: 8.1121, omega: 4.12 }); var y2 = msg(y);
+  y.userMoves("co2", 600); y.co2year(null); var y3 = msg(y);
+  y.estimate({ co2: 600, temp: 24.9, sal: 35.1, pH: 7.9, omega: 3 }); var y4 = msg(y);
+  var z = loaded(); z.co2year({ year: 1990, ppm: 354.4 }); var z0 = msg(z);       // nothing picked on the globe yet
+  z.tap(22.5, -158.5); z.run(); var z1 = msg(z);
+  z.userMoves("temp", 10); var z2 = msg(z);
+  var late = loaded(); late.tap(22.5, -158.5); late.run();
+  late.co2year({ year: 1990, ppm: 354.4 }); late.userMoves("co2", 354);
+  late.estimate({ co2: 425, temp: 24.9, sal: 35.1, pH: 8.0312, omega: 3.4567 });   // the answer for the old CO2 arrives late
+  out.pickLateOldCo2 = msg(late);
+  out.pickYear = { y1: y1, y2: y2, y3: y3, y4: y4, z0: z0, z1: z1, z2: z2, errors: y.errors.concat(z.errors) };
 })();
 
 (function () {
@@ -595,6 +610,13 @@ function msg(env) { return { text: env.pickText.textContent, est: env.pickEstima
   for (var i = 0; i < LOW[0]; i++) w.press("north"); for (var i = 0; i < LOW[1]; i++) w.press("east"); w.run();
   w.useCenter.dispatch("click", {});
   out.pickLowSalinity = { view: w.view(), temp: ws.temp.value, sal: ws.sal.value, msg: msg(w) };
+  var c = loaded(), cs = c.sliders;
+  for (var i = 0; i < 6; i++) c.press("north"); c.run();                          // look at the Arctic, then
+  c.tap(82.5, -167.5); c.run();                                                    // tap its coldest cell (a cell center reads exactly)
+  var z = loaded(); for (var i = 0; i < 5; i++) z.press("north"); z.run();
+  z.tap(71.5, -158.5); z.run();                                                    // a cell at -0.03 °C, off Alaska
+  out.pickNearZero = msg(z).text;
+  out.pickCold = { view: c.view(), temp: cs.temp.value, sal: cs.sal.value, msg: msg(c) };
 })();
 
 (function () {
@@ -624,6 +646,8 @@ else:
     low_spot = next((la, lo) for la in (70, 80, 60) for lo in range(-180, 180, 10)
                     if ref_sample(Sf, la, lo) is not None and ref_sample(Tf, la, lo) is not None and 21 <= ref_sample(Sf, la, lo) <= 29)
     presses = ((low_spot[0] - 20) // 10, ((low_spot[1] + 160) % 360) // 10)
+    cold_spot = (82.5, -167.5)                                                       # the coldest cell, below the slider's -2 °C
+    assert ref_sample(Tf, *cold_spot) < -2.05, ref_sample(Tf, *cold_spot)
     page_run = run_page(PAGE_SCENARIOS.replace("/*LOWSPOT*/", f"var LOW = [{presses[0]}, {presses[1]}];"))
     P = page_run
 
@@ -732,11 +756,11 @@ else:
     assert k["start"] == {"co2": "425", "temp": "15", "sal": "35"}, k["start"]
     assert (h["temp"], h["sal"], h["co2"]) == ("24.9", "35.1", "425"), h               # the data at Hawaii; carbon dioxide untouched
     assert (h["tempEvents"], h["salEvents"], h["co2Events"]) == (1, 1, 0) and h["errors"] == [], h   # one 'input' event each, as for a drag
-    base = "The calculator now uses 24.9 °C and 35.1 PSU from 22.5°N, 158.5°W (CO₂ unchanged)."
+    base = "At 22.5°N, 158.5°W, average annual temperature is 24.9 °C and salinity is 35.1 PSU."
     assert h["msg"] == {"text": base, "est": "", "linkHidden": False}, h["msg"]
     assert k["markerDraw"] == k["plainDraw"] + 2, (k["markerDraw"], k["plainDraw"])    # a ring (two circles) is drawn on the spot
-    assert k["e1"] == {"text": base, "est": "At 425 ppm CO₂: pH 8.031, Ω 3.46.", "linkHidden": False}, k["e1"]
-    assert k["e2"]["est"] == "At 800 ppm CO₂: pH 7.800, Ω 2.13." and k["e2"]["text"] == base, k["e2"]   # follows the CO2 slider
+    assert k["e1"] == {"text": base, "est": "Result: pH 8.031, Ω 3.46.", "linkHidden": False}, k["e1"]
+    assert k["e2"]["est"] == "Result: pH 7.800, Ω 2.13." and k["e2"]["text"] == base, k["e2"]   # follows the CO2 slider
     assert k["ringAfterCo2"] == k["plainDraw"] + 2
     assert k["e3"]["est"] == "The calculator couldn't get an estimate; click the spot again to retry.", k["e3"]
     assert P["pickFarSide"] == k["plainDraw"], "the ring should not show on the far side of the globe"
@@ -744,6 +768,17 @@ else:
     assert P["pickOtherInputs"] == {"text": base, "est": "", "linkHidden": False}, P["pickOtherInputs"]
     print("ok  clicking sets temperature and salinity to the data there (CO₂ untouched), tells the calculator as a drag would, "
           "draws a ring, follows the estimate (also when CO₂ moves, or fails), and clears itself if you move a slider")
+
+    yr = P["pickYear"]
+    assert yr["errors"] == [], yr["errors"]
+    assert yr["y1"] == {"text": base, "est": "Atmospheric CO₂ in 1981 was 339.9 ppm.", "linkHidden": False}, yr["y1"]
+    assert yr["y2"]["est"] == "Atmospheric CO₂ in 1981 was 339.9 ppm. Result: pH 8.112, Ω 4.12.", yr["y2"]
+    assert yr["y3"]["est"] == "" and yr["y4"]["est"] == "Result: pH 7.900, Ω 3.00.", (yr["y3"], yr["y4"])
+    assert yr["z0"] == {"text": "", "est": "", "linkHidden": True}, yr["z0"]
+    assert yr["z1"] == {"text": base, "est": "Atmospheric CO₂ in 1990 was 354.4 ppm.", "linkHidden": False}, yr["z1"]
+    assert yr["z2"] == {"text": "", "est": "", "linkHidden": True}, yr["z2"]
+    assert P["pickLateOldCo2"]["est"] == "Atmospheric CO₂ in 1990 was 354.4 ppm.", P["pickLateOldCo2"]
+    print("ok  a year picked on the CO₂ graph adds 'Atmospheric CO₂ in YEAR was N ppm.' under the globe, and goes away when the year is cleared")
 
     ld = P["pickLand"]
     assert (ld["temp"], ld["sal"], ld["events"]) == ("15", "35", 0) and ld["msg"]["linkHidden"] is True, ld
@@ -767,6 +802,13 @@ else:
     lw = P["pickLowSalinity"]; ls_, lt_ = ref_sample(Sf, *low_spot), ref_sample(Tf, *low_spot)
     assert abs(float(lw["sal"]) - ls_) <= 0.06 and abs(float(lw["temp"]) - lt_) <= 0.06, (lw, ls_, lt_)
     assert "Below 30 PSU the real alkalinity is probably lower than the model's 2300 µmol/kg" in lw["msg"]["text"], lw
+    cd = P["pickCold"]; ct, cs_ = ref_sample(Tf, *cold_spot), ref_sample(Sf, *cold_spot)
+    assert cd["temp"] == "-2", cd
+    assert re.fullmatch(r"At [\d.]+°N, [\d.]+°[EW], average annual temperature is -2\.\d °C and salinity is [\d.]+ PSU\. "
+                        r"That temperature is just outside the calculator's range \(-2 to 35 °C\), so it uses -2\.0 °C\.", cd["msg"]["text"]), cd
+    assert abs(float(cd["msg"]["text"].split("temperature is ")[1].split(" °C")[0]) - ct) <= 0.06, (cd, ct)
+    assert ref_sample(Tf, 71.5, -158.5) == -0.03 and "average annual temperature is 0.0 °C and" in P["pickNearZero"], P["pickNearZero"]
+    print(f"ok  water colder than the calculator allows ({ct:.2f} °C at {cold_spot[0]}N {cold_spot[1]}E) says so and uses -2.0 °C")
     print(f"ok  brackish water ({bs:.1f} PSU in the Baltic) leaves the calculator alone; low-salinity Arctic water "
           f"({ls_:.1f} PSU at {low_spot[0]}N {low_spot[1]}E) is used with a what-if warning")
 

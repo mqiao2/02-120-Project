@@ -277,6 +277,7 @@ function makeEnv(sources, options) {
     var p = env.spot(lat, lon);
     env.pointer("pointerdown", p.x, p.y); env.pointer("pointerup", p.x, p.y);
   };
+  env.co2year = function (detail) { return win.dispatchEvent(new FakeCustomEvent("co2year", { detail: detail })); };
   env.estimate = function (detail) { return win.dispatchEvent(new FakeCustomEvent("estimate", { detail: detail })); };
   env.userMoves = function (name, value) {                              // someone drags a calculator slider
     var slider = env.sliders[name]; slider.value = value; slider.dispatchEvent(new FakeEvent("input", { bubbles: true }));

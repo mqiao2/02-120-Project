@@ -27,8 +27,8 @@
     main { max-width: 72rem; margin: 0 auto; padding: 2rem 1rem 3rem; }
     .top { max-width: 36rem; margin: 0 auto; }
     /* below the calculator: the globe on the left, the CO2 graph on the right (stacked on narrow screens) */
-    .explore { display: grid; gap: 1.5rem; margin-top: 2rem; align-items: start; }
-    @media (min-width: 62rem) { .explore { grid-template-columns: 1fr 1fr; } }
+    .explore { display: grid; gap: 1.5rem; margin-top: 2rem; align-items: start; max-width: 36rem; }
+    @media (min-width: 62rem) { .explore { grid-template-columns: 1fr 1fr; max-width: none; } }
     h1 { font-size: 1.75rem; line-height: 1.2; margin: 0 0 .5rem; }
     .lede { color: var(--muted); margin: 0 0 1.5rem; }
     .card {
@@ -140,7 +140,8 @@
       <div class="control">
         <label for="co2">Atmospheric CO₂ <span id="co2-out" class="value-out" aria-hidden="true"></span></label>
         <input id="co2" type="range" min="250" max="1000" step="1" value="425">
-        <p class="hint">Preindustrial ≈ 280 ppm. Mauna Loa, early Aug 2025: ≈ 425 ppm.</p>
+        <p class="hint">Preindustrial ≈ 280 ppm. Mauna Loa, early Aug 2025: ≈ 425 ppm.
+          Or pick a year on the CO₂ graph below. <a href="#co2-title">Go to the graph</a></p>
       </div>
 
       <div class="control">
@@ -240,17 +241,19 @@
 
     <section class="card co2-card" aria-labelledby="co2-title">
       <h2 id="co2-title">How has CO₂ in the air changed?</h2>
-      <p class="hint">Yearly averages at Mauna Loa, Hawaii. <strong>Pick a year, or click the graph, to use that
-        year's CO₂ in the calculator above.</strong></p>
+      <p class="hint">Yearly averages at Mauna Loa, Hawaii. <strong>Move the Year slider, or click or tap the graph,
+        to use that year's CO₂ in the calculator above.</strong></p>
       <svg id="co2-chart" viewBox="0 0 480 300" role="img" aria-label="Graph of yearly CO₂ at Mauna Loa"></svg>
       <p id="co2-status" class="hint" role="status">Loading CO₂ data…</p>
       <div class="control">
         <label for="co2-year">Year <span id="co2-year-out" class="value-out" aria-hidden="true">Pick a year</span></label>
         <input id="co2-year" type="range" min="0" max="0" step="1" value="0" disabled>
       </div>
-      <p id="co2-pick" class="co2-pick" role="status"></p>
-      <p class="note">Data: NOAA Mauna Loa Observatory. Each year is the average of its 12 monthly averages; years
-        with missing months (1958, 1964 and 2025 so far) are left out. Before about 1750 the air held about 280 ppm.</p>
+      <p class="co2-pick"><span id="co2-pick" role="status"></span> <span id="co2-pick-estimate"></span>
+        <a id="co2-pick-link" href="#calculator" hidden>Go to the calculator</a></p>
+      <p class="note">Data: NOAA Mauna Loa Observatory. Each year is the average of its 12 monthly averages of the daily record;
+        years with missing months (1958, 1964, and 2025, because the data file stops in August 2025) are left out.
+        These run up to about 0.5 ppm below NOAA's published yearly means, which are computed differently. Before about 1750 the air held about 280 ppm.</p>
     </section>
     </div>
   </main>

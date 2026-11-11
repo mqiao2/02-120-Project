@@ -29,7 +29,8 @@ years, ppm = data["years"], data["ppm"]
 assert len(years) == len(ppm) >= 60 and years == sorted(years) and years[0] == 1959 and years[-1] >= 2024, years
 assert 1958 not in years and 1964 not in years, "years with missing months must be left out"
 assert all(b > a for a, b in zip(ppm, ppm[1:])), "yearly CO2 at Mauna Loa has risen every year"
-# NOAA's published yearly means (approximately; theirs fill gaps differently, so allow half a ppm)
+# NOAA's published yearly means. Ours are plain averages of the daily record and since the 1980s run
+# 0.2-0.54 ppm below NOAA's (the page says so), so allow 0.6 ppm.
 for year, noaa in ((1959, 315.98), (1990, 354.45), (2000, 369.71), (2024, 424.61)):
     got = ppm[years.index(year)]
     assert abs(got - noaa) < 0.6, (year, got, noaa)
@@ -104,7 +105,12 @@ function makePage(options) {
   };
   El.prototype.getBoundingClientRect = function () { return { left: 10, top: 20, width: 300, height: 170 }; };
   function add(id) { return (byId[id] = new El(id)); }
-  var page = { svg: add("co2-chart"), picker: add("co2-year"), out: add("co2-year-out"), message: add("co2-pick"), status: add("co2-status"), errors: errors };
+  var page = { svg: add("co2-chart"), picker: add("co2-year"), out: add("co2-year-out"), message: add("co2-pick"), status: add("co2-status"),
+              estimate: add("co2-pick-estimate"), link: add("co2-pick-link"), errors: errors };
+  page.link.hidden = true;
+  var winListeners = {};
+  var window = { addEventListener: function (t, fn) { (winListeners[t] = winListeners[t] || []).push(fn); } };
+  page.calculatorSays = function (detail) { (winListeners.estimate || []).forEach(function (fn) { fn({ detail: detail }); }); };
   page.status.textContent = "Loading CO₂ data…"; page.picker.disabled = true;
   if (!options.noCalculator) {
     var co2 = page.co2 = add("co2"), current = "425";
@@ -118,16 +124,20 @@ function makePage(options) {
     var mode = options.fetch || "ok";
     if (mode === "reject") return new SyncPromise(function (res, rej) { rej(new TypeError("offline")); });
     if (mode === "404") return new SyncPromise(function (res) { res({ ok: false, status: 404 }); });
-    var body = mode === "short" ? { years: [2000], ppm: [370] } : chartData;
+    var body = mode === "short" ? { years: [2000], ppm: [370] }
+             : mode === "nan" ? { years: [2000, 2001], ppm: [370, null] }
+             : mode === "unsorted" ? { years: [2001, 2000], ppm: [371, 370] } : chartData;
     return new SyncPromise(function (res) { res({ ok: true, json: function () { return new SyncPromise(function (r) { r(body); }); } }); });
   }
-  var factory = new Function("document", "fetch", "Event", chartSource + "\n;return Co2Chart;");
-  try { page.api = factory(document, fetch, Ev); } catch (e) { page.loadError = String(e); }
+  var factory = new Function("document", "fetch", "Event", "window", chartSource + "\n;return Co2Chart;");
+  try { page.api = factory(document, fetch, Ev, window); } catch (e) { page.loadError = String(e); }
   page.pick = function (i) { page.picker.value = String(i); page.picker.dispatchEvent(new Ev("input")); };
   page.clickAtYear = function (year) {        // a click on the graph above a year, in screen pixels
     var x = page.api.scales(chartData.years).x(year) / page.api.W * 300 + 10;
     page.svg.dispatchEvent({ type: "click", clientX: x, clientY: 100 });
   };
+  page.press = function (key) { page.picker.dispatchEvent({ type: "keydown", key: key }); };
+  page.change = function () { page.picker.dispatchEvent(new Ev("change")); };
   page.userMovesCo2 = function (v) { page.co2.value = v; page.co2.dispatchEvent(new Ev("input")); };
   return page;
 }
@@ -158,6 +168,9 @@ else:
     assert 'class="marker"' in m["one"] and f"1990: {ppm[years.index(1990)]:.1f} ppm" in m["one"]
     label = re.search(r'<text class="marker-label" x="([\d.]+)"[^>]*text-anchor="(\w+)"', m["lastOne"])
     assert label.group(2) == "end", "the last year's label must sit to the left of its point, inside the graph"
+    ly = float(re.search(r'<text class="marker-label"[^>]* y="([\d.]+)"', m["one"]).group(1))
+    cy = float(re.search(r'<circle class="marker"[^>]* cy="([\d.]+)"', m["one"]).group(1))
+    assert ly > cy + 15, "for a left-side year the label goes under the rising line, not across it"
     print(f"ok  the line has {len(pts)} points going up and to the right, a dashed preindustrial line, and a marker with its label kept inside")
 
     # -- the page code
@@ -171,11 +184,24 @@ else:
       p.pick(i1990);
       out.picked = { co2: p.co2.value, co2Events: p.co2.inputEvents, message: p.message.textContent, out: p.out.textContent,
                      valuetext: p.picker.getAttribute("aria-valuetext"), marker: p.svg.innerHTML.indexOf('class="marker"') >= 0 };
+      out.pickedExtra = { link: p.link.hidden, estimate: p.estimate.textContent };
+      p.calculatorSays({ co2: 354, pH: 8.1234, omega: 2.345 });
+      out.pickedExtra.shown = p.estimate.textContent;
+      p.calculatorSays({ co2: 500, pH: 8.0, omega: 2.0 });            // not this year's CO2: ignored
+      out.pickedExtra.other = p.estimate.textContent;
+      p.calculatorSays({ error: true });
+      out.pickedExtra.error = p.estimate.textContent;
       p.clickAtYear(2000.3);
       out.clicked = { co2: p.co2.value, picker: p.picker.value, message: p.message.textContent };
       p.userMovesCo2(600);
+      out.clearedExtra = { link: p.link.hidden, estimate: p.estimate.textContent, valuetext: p.picker.getAttribute("aria-valuetext") };
+      var k = makePage(); var lastIdx = String(chartData.years.length - 1);
+      out.loadedValuetext = k.picker.getAttribute("aria-valuetext");
+      k.press("Enter"); out.enter = { co2: k.co2.value, picker: k.picker.value };
+      var c = makePage(); c.change(); out.change = { co2: c.co2.value, events: c.co2.inputEvents };
+      c.change(); out.change.again = c.co2.inputEvents;                // already picked: no second event
       out.cleared = { message: p.message.textContent, out: p.out.textContent, marker: p.svg.innerHTML.indexOf('class="marker"') >= 0, co2: p.co2.value };
-      out.failures = ["reject", "404", "short"].map(function (mode) {
+      out.failures = ["reject", "404", "short", "nan", "unsorted"].map(function (mode) {
         var f = makePage({ fetch: mode }); f.pick(3);
         return { status: f.status.textContent, disabled: f.picker.disabled, co2: f.co2.value, errors: f.errors };
       });
@@ -196,6 +222,15 @@ else:
     print(f"ok  picking 1990 sets the calculator's CO2 to {round(v1990)} ppm with one 'input' event, as a drag would, and says so")
     ck = P["clicked"]
     assert ck["co2"] == str(round(ppm[years.index(2000)])) and ck["picker"] == str(years.index(2000)), ck
+    px = P["pickedExtra"]
+    assert px["link"] is False and px["estimate"] == "" and px["shown"] == "Result: pH 8.123, Ω 2.35." and px["other"] == px["shown"], px
+    assert px["error"] == "The calculator couldn't get an estimate; pick the year again to retry.", px
+    print("ok  after picking a year, the graph shows the calculator's pH and Ω and a link to the calculator")
+    assert P["clearedExtra"] == {"link": True, "estimate": "", "valuetext": "No year picked"}, P["clearedExtra"]
+    assert P["loadedValuetext"] == "No year picked", P["loadedValuetext"]
+    assert P["enter"] == {"co2": str(round(ppm[-1])), "picker": str(len(years) - 1)}, P["enter"]
+    assert P["change"] == {"co2": str(round(ppm[-1])), "events": 1, "again": 1}, P["change"]
+    print("ok  Enter or a click on the thumb picks the latest year, which moving the thumb can't")
     print("ok  clicking the graph above 2000 picks 2000 and moves the year picker there")
     assert P["cleared"] == {"message": "", "out": "Pick a year", "marker": False, "co2": "600"}, P["cleared"]
     print("ok  moving the CO2 slider by hand clears the year")
@@ -210,9 +245,11 @@ page = (PUBLIC / "index.html").read_text(encoding="utf-8")
 js = CHART_JS.read_text(encoding="utf-8")
 for element in ("co2-chart", "co2-year", "co2-year-out", "co2-pick", "co2-status", "co2-title"):
     assert f'id="{element}"' in page, element
+assert 'id="co2-pick-estimate"' in page and re.search(r'<a id="co2-pick-link" href="#calculator" hidden>', page)
+assert '<a href="#co2-title">Go to the graph</a>' in page and "0.5 ppm below NOAA" in page
 explore = page[page.index('<div class="explore">'):]
 assert explore.index('class="card globe-card"') < explore.index('class="card co2-card"'), "the globe comes first (left), the graph second (right)"
-assert re.search(r"@media \(min-width: [\d.]+rem\) \{ \.explore \{ grid-template-columns: 1fr 1fr; \} \}", page), "two columns on wide screens"
+assert re.search(r"@media \(min-width: [\d.]+rem\) \{ \.explore \{ grid-template-columns: 1fr 1fr; max-width: none; \} \}", page), "two columns on wide screens"
 assert re.search(r'<script src="/co2chart\.js" defer onerror="[^"]+"></script>', page)
 W_js, H_js = (int(re.search(rf'var W = (\d+), H = (\d+);', js).group(k)) for k in (1, 2))
 assert f'viewBox="0 0 {W_js} {H_js}"' in page, "the page's graph size must match co2chart.js"

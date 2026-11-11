@@ -34,6 +34,16 @@ var Co2Chart = (function () {
     return best;
   }
 
+  // True if `d` looks like the data file: matching lists, whole increasing years, numbers for ppm (JSON has no NaN).
+  function valid(d) {
+    if (!d || !Array.isArray(d.years) || !Array.isArray(d.ppm) || d.years.length < 2 || d.years.length !== d.ppm.length) return false;
+    for (var i = 0; i < d.years.length; i++) {
+      if (!Number.isInteger(d.years[i]) || typeof d.ppm[i] !== "number") return false;
+      if (i > 0 && d.years[i] <= d.years[i - 1]) return false;
+    }
+    return true;
+  }
+
   function f1(n) { return (Math.round(n * 10) / 10).toFixed(1); }
 
   // The whole graph as SVG text. `selected` is the index of the chosen year, or -1 for none.
@@ -59,9 +69,10 @@ var Co2Chart = (function () {
       var px = s.x(data.years[selected]), py = s.y(data.ppm[selected]);
       var label = data.years[selected] + ": " + data.ppm[selected].toFixed(1) + " ppm";
       var right = px > W - 160;                          // keep the label inside the drawing
+      var ly = right ? py - 10 : py + 24;                // left of the end, the label goes under the rising line
       parts.push('<line class="marker-line" x1="' + f1(px) + '" x2="' + f1(px) + '" y1="' + y0 + '" y2="' + y1 + '"/>');
       parts.push('<circle class="marker" cx="' + f1(px) + '" cy="' + f1(py) + '" r="6"/>');
-      parts.push('<text class="marker-label" x="' + f1(right ? px - 10 : px + 10) + '" y="' + f1(py - 10) + '" text-anchor="' +
+      parts.push('<text class="marker-label" x="' + f1(right ? px - 10 : px + 10) + '" y="' + f1(ly) + '" text-anchor="' +
                  (right ? "end" : "start") + '">' + label + '</text>');
     }
     return parts.join("");
@@ -74,6 +85,8 @@ var Co2Chart = (function () {
     var yearOut = document.getElementById("co2-year-out");
     var messageEl = document.getElementById("co2-pick");
     var statusEl = document.getElementById("co2-status");
+    var estimateEl = document.getElementById("co2-pick-estimate");
+    var linkEl = document.getElementById("co2-pick-link");
     if (!svg || !picker) return;
     var data = null, selected = -1, applying = false;
 
@@ -90,6 +103,7 @@ var Co2Chart = (function () {
       draw();
       var co2 = document.getElementById("co2");
       if (!co2) { messageEl.textContent = "The calculator isn't on this page."; return; }
+      if (estimateEl) estimateEl.textContent = "";
       var wanted = Math.round(data.ppm[i]);
       var set = Math.max(Number(co2.min), Math.min(Number(co2.max), wanted));
       applying = true;
@@ -101,9 +115,31 @@ var Co2Chart = (function () {
       }
       messageEl.textContent = "The calculator now uses " + co2.value + " ppm CO₂, the " + data.years[i] +
         " average at Mauna Loa (" + data.ppm[i].toFixed(1) + " ppm).";
+      if (linkEl) linkEl.hidden = false;
     }
 
+    function clearPick() {
+      selected = -1; messageEl.textContent = ""; yearOut.textContent = "Pick a year";
+      picker.setAttribute("aria-valuetext", "No year picked");
+      if (estimateEl) estimateEl.textContent = "";
+      if (linkEl) linkEl.hidden = true;
+      draw();
+    }
+
+    // The calculator reports each estimate; while it still uses the picked year's CO2, show it here,
+    // because the calculator itself may be off screen.
+    window.addEventListener("estimate", function (e) {
+      var d = e.detail, co2 = document.getElementById("co2");
+      if (selected < 0 || !d || !estimateEl || !co2) return;
+      if (d.error) { estimateEl.textContent = "The calculator couldn't get an estimate; pick the year again to retry."; return; }
+      if (typeof d.pH !== "number" || Math.round(d.co2) !== Number(co2.value)) return;
+      estimateEl.textContent = "Result: pH " + d.pH.toFixed(3) + ", Ω " + d.omega.toFixed(2) + ".";
+    });
+
     picker.addEventListener("input", function () { if (data) choose(Number(picker.value)); });
+    // The thumb starts on the latest year, so moving it can't pick that year; Enter or a click on the thumb can.
+    picker.addEventListener("change", function () { if (data && selected !== Number(picker.value)) choose(Number(picker.value)); });
+    picker.addEventListener("keydown", function (e) { if (data && e.key === "Enter") choose(Number(picker.value)); });
 
     // Clicking the graph picks the nearest year.
     svg.addEventListener("click", function (e) {
@@ -118,7 +154,7 @@ var Co2Chart = (function () {
     var co2Slider = document.getElementById("co2");
     if (co2Slider) co2Slider.addEventListener("input", function () {
       if (applying || selected < 0) return;
-      selected = -1; messageEl.textContent = ""; yearOut.textContent = "Pick a year"; draw();
+      clearPick();
     });
 
     fetch(DATA_URL)
@@ -127,11 +163,11 @@ var Co2Chart = (function () {
         return response.json();
       })
       .then(function (d) {
-        if (!d.years || !d.ppm || d.years.length < 2 || d.years.length !== d.ppm.length) throw new Error("unexpected data");
+        if (!valid(d)) throw new Error("unexpected data");
         data = d;
         picker.min = "0"; picker.max = String(d.years.length - 1); picker.step = "1";
         picker.value = String(d.years.length - 1);          // the thumb starts at the latest year, but nothing is changed yet
-        picker.setAttribute("aria-valuetext", describe(d.years.length - 1));
+        picker.setAttribute("aria-valuetext", "No year picked");
         picker.disabled = false;
         yearOut.textContent = "Pick a year";
         statusEl.textContent = "";
@@ -152,5 +188,5 @@ var Co2Chart = (function () {
   }
 
   return { W: W, H: H, PAD: PAD, PREINDUSTRIAL: PREINDUSTRIAL, Y_MIN: Y_MIN, Y_MAX: Y_MAX,
-           scales: scales, nearestIndex: nearestIndex, svgMarkup: svgMarkup };
+           scales: scales, nearestIndex: nearestIndex, svgMarkup: svgMarkup, valid: valid };
 })();

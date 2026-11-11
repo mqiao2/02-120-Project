@@ -59,3 +59,10 @@ def api_ph():
 def home():
     # On Vercel, public/index.html is served directly; this does the same locally.
     return send_from_directory(ROOT / "public", "index.html")
+
+
+@app.get("/<path:filename>")
+def public_file(filename):
+    # Likewise for the rest of public/ (globe.js, data/...). Only files inside public/ can
+    # be reached: send_from_directory refuses paths that climb out of it.
+    return send_from_directory(ROOT / "public", filename)

@@ -40,7 +40,7 @@ SyncPromise.reject = function (e) { return new SyncPromise(function (resolve, re
 
 function makeEnv(sources, options) {
   options = options || {};
-  var env = { errors: [], fetchUrls: [], drawImageCalls: [], announceWrites: 0, lastArcRadius: null };
+  var env = { errors: [], fetchUrls: [], drawImageCalls: [], announceWrites: 0, lastArcRadius: null, windowListeners: {}, arcs: 0 };
   var clock = 1000, frameQueue = [], frameId = 1, timers = [], timerId = 1, byId = {};
 
   function guard(label, fn) {
@@ -53,7 +53,7 @@ function makeEnv(sources, options) {
     function count(name) { c.counts[name] = (c.counts[name] || 0) + 1; }
     ["clearRect", "beginPath", "stroke", "fill", "clip", "save", "restore", "moveTo", "lineTo", "putImageData"]
       .forEach(function (name) { c[name] = function () { count(name); }; });
-    c.arc = function (x, y, r) { count("arc"); if (owner === env.canvas) env.lastArcRadius = r; };
+    c.arc = function (x, y, r) { count("arc"); if (owner === env.canvas) { env.lastArcRadius = r; env.arcs++; } };
     c.drawImage = function (source) {
       count("drawImage");
       if (owner === env.canvas) env.drawImageCalls.push({ frame: env.frames, sourceWidth: source.width, canvasWidth: owner.width, canvasHeight: owner.height });
@@ -91,6 +91,14 @@ function makeEnv(sources, options) {
     return { left: r.left, top: r.top, width: r.width, height: r.height, right: r.left + r.width, bottom: r.top + r.height };
   };
   Element.prototype.setPointerCapture = function () { if (options.captureThrows) throw new Error("InvalidPointerId"); };
+  // dispatchEvent is how the page sends a real event object (like new Event("input")) to an element
+  Element.prototype.dispatchEvent = function (ev) {
+    var el = this;
+    ev.target = el;
+    if (ev.type === "input") el.inputEvents = (el.inputEvents || 0) + 1;
+    (el.listeners[ev.type] || []).slice().forEach(function (l) { guard(ev.type + " on #" + el.id, function () { l.fn.call(el, ev); }); });
+    return true;
+  };
   Element.prototype.dispatch = function (type, props) {
     var el = this;
     var ev = { type: type, target: el, defaultPrevented: false, timeStamp: clock,
@@ -121,6 +129,30 @@ function makeEnv(sources, options) {
   env.radios = ["temperature", "salinity", "plain"].map(function (v) {
     var r = new Element("INPUT", "layer-" + v); r.value = v; r.name = "layer"; r.checked = (v === "temperature"); return r;
   });
+  env.useCenter = add("BUTTON", "globe-use-center");
+  env.pickText = add("SPAN", "globe-pick"); env.pickEstimate = add("SPAN", "globe-pick-estimate"); env.pickLink = add("A", "globe-pick-link"); env.pickLink.hidden = true;
+
+  // The calculator's three range sliders. Setting .value snaps it into range and onto the step, as a browser does.
+  function makeSlider(id, min, max, step, value) {
+    var e = add("INPUT", id), current = String(value);
+    e.min = String(min); e.max = String(max); e.step = String(step); e.inputEvents = 0;
+    Object.defineProperty(e, "value", {
+      get: function () { return current; },
+      set: function (v) {
+        var n = Number(v);
+        if (n !== n) n = min;
+        n = Math.max(min, Math.min(max, n));
+        n = min + Math.round((n - min) / step) * step;
+        current = String(Math.round(n * 1000) / 1000);
+      }
+    });
+    return e;
+  }
+  env.sliders = options.noCalculator ? {} : {
+    co2: makeSlider("co2", 250, 1000, 1, 425),
+    temp: makeSlider("temp", -2, 35, 0.1, 15),
+    sal: makeSlider("sal", 20, 42, 0.1, 35)
+  };
 
   var document = {
     getElementById: function (id) { return byId[id] || null; },
@@ -135,10 +167,16 @@ function makeEnv(sources, options) {
   // ---- the window, timers and animation frames
   function FakeResizeObserver(callback) { this.callback = callback; env.resizeObserver = this; }
   FakeResizeObserver.prototype.observe = function () {};
+  function FakeEvent(type, init) { this.type = type; this.bubbles = !!(init && init.bubbles); this.detail = init && init.detail; this.defaultPrevented = false; }
+  function FakeCustomEvent(type, init) { FakeEvent.call(this, type, init); }
   var win = {
     devicePixelRatio: options.dpr || 1,
     matchMedia: function (query) { return { matches: !!options.reduceMotion && query.indexOf("prefers-reduced-motion") >= 0 }; },
-    addEventListener: function (type, fn) { (env.windowListeners = env.windowListeners || {})[type] = fn; }
+    addEventListener: function (type, fn) { (env.windowListeners[type] = env.windowListeners[type] || []).push(fn); },
+    dispatchEvent: function (ev) {
+      (env.windowListeners[ev.type] || []).slice().forEach(function (fn) { guard("window " + ev.type, function () { fn(ev); }); });
+      return true;
+    }
   };
   if (!options.noResizeObserver) win.ResizeObserver = FakeResizeObserver;
 
@@ -195,11 +233,11 @@ function makeEnv(sources, options) {
 
   // ---- run the page code
   var factory = new Function("document", "window", "fetch", "requestAnimationFrame", "cancelAnimationFrame",
-                             "setTimeout", "clearTimeout", "performance", "ResizeObserver",
+                             "setTimeout", "clearTimeout", "performance", "ResizeObserver", "Event", "CustomEvent",
                              sources.globeJs + "\n;return OceanGlobe;");
   try {
     env.api = factory(document, win, fakeFetch, fakeFrame, fakeCancelFrame, fakeSetTimeout, fakeClearTimeout,
-                      { now: function () { return clock; } }, win.ResizeObserver);
+                      { now: function () { return clock; } }, win.ResizeObserver, FakeEvent, FakeCustomEvent);
   } catch (e) { env.loadError = String(e); }
 
   // ---- ways to poke the page
@@ -234,6 +272,14 @@ function makeEnv(sources, options) {
     if (q.z <= 0) return null;
     var half = env.canvas.rect.width / 2, r = half * 0.94 * env.zoom();
     return { x: env.canvas.rect.left + half + q.x * r, y: env.canvas.rect.top + half - q.y * r };
+  };
+  env.tap = function (lat, lon) {                                       // press and let go on the same spot: a click
+    var p = env.spot(lat, lon);
+    env.pointer("pointerdown", p.x, p.y); env.pointer("pointerup", p.x, p.y);
+  };
+  env.estimate = function (detail) { return win.dispatchEvent(new FakeCustomEvent("estimate", { detail: detail })); };
+  env.userMoves = function (name, value) {                              // someone drags a calculator slider
+    var slider = env.sliders[name]; slider.value = value; slider.dispatchEvent(new FakeEvent("input", { bubbles: true }));
   };
   env.hover = function (lat, lon) {
     var p = env.spot(lat, lon);

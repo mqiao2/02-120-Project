@@ -215,17 +215,24 @@ var OceanGlobe = (function () {
     var centerEl = document.getElementById("globe-center");
     var descriptionEl = document.getElementById("globe-description");
     var announceEl = document.getElementById("globe-announce");
+    var pickEl = document.getElementById("globe-pick");
+    var pickLink = document.getElementById("globe-pick-link");
+    var pickEstimateEl = document.getElementById("globe-pick-estimate");
     var legendEl = document.getElementById("globe-legend");
     var legendTitle = document.getElementById("legend-title");
     var legendBar = document.getElementById("legend-bar");
     var legendTicks = document.getElementById("legend-ticks");
-    var HINT = "Hover or tap the globe for a value.";
+    var HINT = "Hover for a value. Click or tap a spot to use it in the calculator.";
 
     var HOME = { lat: 20, lon: -160, zoom: 1 };        // the Pacific, with Hawaii near the middle
     var state = { lat: HOME.lat, lon: HOME.lon, zoom: HOME.zoom, layer: "temperature" };
     var grids = null;                                  // filled in when the data arrives
     var reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     var image = null, pixels = null;
+    var picked = null;           // the spot the calculator was last set from: { lat, lon, temperature, salinity, exact }
+    var applying = false;        // true while we move the calculator's sliders ourselves
+    var awaiting = false;        // true while we wait for the calculator's estimate for that spot
+    var loadFailed = false;      // true if the ocean data could not be loaded
 
     function globeRadius(width) { return width / 2 * 0.94 * state.zoom; }
 
@@ -271,6 +278,22 @@ var OceanGlobe = (function () {
       ctx.beginPath(); ctx.arc(c, c, r, 0, 2 * Math.PI); ctx.stroke();   // smooths the rim
     }
 
+    // A ring on the spot the calculator was set from, so you can see which spot it is. It is
+    // drawn before the grid lines, so the rim stays the last thing drawn.
+    function drawMarker(full) {
+      if (!picked) return;
+      var q = latLonToView(picked.lat, picked.lon, state.lat, state.lon);
+      if (q.z <= 0.02) return;                         // round the back of the globe
+      var c = full / 2, r = globeRadius(full);
+      var x = c + q.x * r, y = c - q.y * r, size = Math.max(6, full / 60), line = Math.max(2, full / 260);
+      ctx.save();
+      ctx.lineWidth = line * 3; ctx.strokeStyle = "rgba(0, 0, 0, 0.65)";        // a dark outline, so the ring shows on any color
+      ctx.beginPath(); ctx.arc(x, y, size, 0, 2 * Math.PI); ctx.stroke();
+      ctx.lineWidth = line; ctx.strokeStyle = "#ffffff";
+      ctx.beginPath(); ctx.arc(x, y, size, 0, 2 * Math.PI); ctx.stroke();
+      ctx.restore();
+    }
+
     // ---- words for a spot on the globe ----
     function whereText(lat, lon) { return formatLat(lat) + ", " + formatLon(lon); }
     // The value at a spot as text ("25.6 °C"), or null when this layer has nothing there.
@@ -303,6 +326,7 @@ var OceanGlobe = (function () {
       drawHalo(full);
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(off, 0, 0, full, full);
+      drawMarker(full);
       drawGraticule(full);
       centerEl.textContent = centerText();
     }
@@ -340,6 +364,96 @@ var OceanGlobe = (function () {
           (state.zoom > 1.05 ? ". Zoom " + state.zoom.toFixed(1) + " times." : ".");
       }, 400);
     }
+
+    // ---- sending a spot to the calculator ----
+    // Sets the calculator's temperature and salinity sliders to the data at a spot, then tells the
+    // calculator by sending the same "input" event a drag would. The sliders are found by their ids
+    // ("temp" and "sal") and their limits are read from the page, so they cannot drift apart.
+    // Carbon dioxide is in the air, not the water, so it is left alone.
+    function setSlider(id, value) {
+      var el = document.getElementById(id);
+      if (!el) return null;
+      var low = Number(el.min), high = Number(el.max);
+      var shown = Math.round(value * 10) / 10;                     // the sliders show one decimal
+      var inRange = Math.max(low, Math.min(high, shown));
+      applying = true;
+      try {
+        el.value = String(inRange);                                // the browser snaps this to the slider's step
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      } finally {
+        applying = false;
+      }
+      return { value: Number(el.value), outOfRange: inRange !== shown, low: low, high: high };
+    }
+
+    function showPick(text, linked) {
+      pickEl.textContent = text;
+      pickEstimateEl.textContent = "";
+      pickLink.hidden = !linked;
+    }
+
+    function sendToCalculator(lat, lon) {
+      awaiting = false;
+      if (!grids) {
+        showPick(loadFailed ? "The ocean data couldn't be loaded, so the calculator was not changed. Reload the page to try again."
+                            : "The ocean data hasn't loaded yet.", false);
+        return;
+      }
+      var where = whereText(lat, lon);
+      var t = sampleSmooth(grids.temperature, lat, lon), s = sampleSmooth(grids.salinity, lat, lon);
+      if (t !== t || s !== s) {                        // the calculator needs both, so change neither
+        showPick((t !== t && s !== s ? "Land or no data" : (t !== t ? "No temperature data" : "No salinity data")) +
+                 " at " + where + ", so the calculator was not changed.", false);
+        return;
+      }
+      var salSlider = document.getElementById("sal");
+      if (!salSlider || !document.getElementById("temp")) { showPick("The calculator isn't on this page.", false); return; }
+      var salLow = Number(salSlider.min), salHigh = Number(salSlider.max), sShown = Math.round(s * 10) / 10;
+      if (sShown < salLow || sShown > salHigh) {      // brackish water: the model's equations don't hold, so leave it alone
+        showPick("Salinity at " + where + " is " + formatValue(s, LAYERS.salinity) + ", outside this calculator's range (" +
+                 salLow + " to " + salHigh + " PSU), so the calculator was not changed.", false);
+        return;
+      }
+      var tempSet = setSlider("temp", t), salSet = setSlider("sal", s);
+      var notes = [];
+      if (tempSet.outOfRange) {                        // only a few cells, by less than half a degree
+        notes.push("Temperature here is " + formatValue(t, LAYERS.temperature) + ", just outside the calculator's range (" +
+                   tempSet.low + " to " + tempSet.high + " °C), so it uses " + tempSet.value.toFixed(1) + " °C.");
+      }
+      if (salSet.value < 30) {
+        notes.push("Below 30 PSU the real alkalinity is probably lower than the model's 2300 µmol/kg, " +
+                   "so treat the pH and Ω as a what-if: the real Ω is likely lower.");
+      }
+      picked = { lat: lat, lon: lon, temperature: tempSet.value, salinity: salSet.value };
+      awaiting = true;                                 // follow the calculator's estimates while it matches this spot
+      showPick("The calculator now uses " + tempSet.value.toFixed(1) + " °C and " + salSet.value.toFixed(1) + " PSU from " +
+               where + " (CO₂ unchanged)." + (notes.length ? " " + notes.join(" ") : ""), true);
+      requestDraw(false);                              // to put the ring on the globe
+    }
+
+    // The calculator reports each estimate (also after CO₂ moves). While it still matches the spot,
+    // show it under the globe. This text is not a live region: the calculator already reads it out.
+    window.addEventListener("estimate", function (e) {
+      var d = e.detail;
+      if (!awaiting || !picked || !d) return;
+      if (d.error) { pickEstimateEl.textContent = "The calculator couldn't get an estimate; click the spot again to retry."; return; }
+      if (typeof d.pH !== "number") return;
+      if (Math.abs(d.temp - picked.temperature) > 0.05 || Math.abs(d.sal - picked.salinity) > 0.05) return;   // not for this spot
+      pickEstimateEl.textContent = "At " + Math.round(d.co2) + " ppm CO₂: pH " + d.pH.toFixed(3) + ", Ω " + d.omega.toFixed(2) + ".";
+    });
+
+    // If someone moves the temperature or salinity slider themselves, the calculator no longer
+    // matches that spot, so take the ring and the message away.
+    ["temp", "sal"].forEach(function (id) {
+      var slider = document.getElementById(id);
+      if (!slider) return;
+      slider.addEventListener("input", function () {
+        if (applying || !picked) return;
+        picked = null; awaiting = false;
+        showPick("", false);
+        requestDraw(false);
+      });
+    });
 
     // ---- layers and the legend ----
     function applyLayer() {
@@ -409,11 +523,17 @@ var OceanGlobe = (function () {
       turn(dLon, dLat);
       requestDraw(true);
     });
-    function endDrag(e) {
+    function endDrag(e, cancelled) {
       if (!drag || e.pointerId !== drag.id) return;
       var finished = drag; drag = null;
       canvas.classList.remove("dragging");
-      if (!finished.moved) { showReadout(e); return; }     // a tap: read the value there
+      if (!finished.moved) {                               // a click or tap: read the value there and send it to the calculator
+        if (cancelled) return;                             // the touch was taken over (by scrolling, say): not a tap
+        showReadout(e);
+        var spot = grids && latLonAt(e);
+        if (spot) sendToCalculator(spot.lat, spot.lon);
+        return;
+      }
       var speed = Math.hypot(finished.vLon, finished.vLat);
       if (reduceMotion || speed < 0.02 || e.timeStamp - finished.t > 80) { requestDraw(false); return; }
       var vLon = finished.vLon, vLat = finished.vLat, last = performance.now();
@@ -428,7 +548,7 @@ var OceanGlobe = (function () {
       })(last);
     }
     canvas.addEventListener("pointerup", endDrag);
-    canvas.addEventListener("pointercancel", endDrag);
+    canvas.addEventListener("pointercancel", function (e) { endDrag(e, true); });
     canvas.addEventListener("pointerleave", function (e) {
       if (!drag && e.pointerType === "mouse") readoutEl.textContent = HINT;
     });
@@ -455,6 +575,10 @@ var OceanGlobe = (function () {
     press("globe-zoom-in", function () { zoomBy(1.25); });
     press("globe-zoom-out", function () { zoomBy(0.8); });
     press("globe-reset", function () { state.lat = HOME.lat; state.lon = HOME.lon; state.zoom = HOME.zoom; });
+    // The same thing as clicking, for people who cannot click on the globe: use the spot in the middle of the view.
+    document.getElementById("globe-use-center").addEventListener("click", function () {
+      sendToCalculator(state.lat, state.lon);
+    });
 
     Array.prototype.forEach.call(document.querySelectorAll('input[name="layer"]'), function (radio) {
       radio.addEventListener("change", function () {
@@ -497,6 +621,7 @@ var OceanGlobe = (function () {
         requestDraw(false);
       })
       .catch(function () {
+        loadFailed = true;
         statusEl.hidden = false;
         statusEl.textContent = "Couldn't load the ocean data. Reload the page to try again.";
       });

@@ -547,13 +547,84 @@ out.canvasListeners = Object.keys(loaded().canvas.listeners).sort();
   var c = loaded(); c.canvas.clientWidth = 400; c.canvas.rect = { left: 100, top: 50, width: 400, height: 400 };
   c.resizeObserver.callback([{}]); c.run(); out.resize = { width: c.canvas.width, height: c.canvas.height, errors: c.errors };
 })();
+
+// clicking the globe sends the spot to the calculator
+function arcsPerDraw(env) { var n = env.arcs; env.resizeObserver.callback([{}]); env.frame(0); return env.arcs - n; }   // one draw's circles
+function msg(env) { return { text: env.pickText.textContent, est: env.pickEstimate.textContent, linkHidden: env.pickLink.hidden }; }
+(function () {
+  var plainDraw = arcsPerDraw(loaded());
+  var a = loaded(), sl = a.sliders, start = { co2: sl.co2.value, temp: sl.temp.value, sal: sl.sal.value };
+  a.tap(22.5, -158.5); a.run();
+  var hawaii = { co2: sl.co2.value, temp: sl.temp.value, sal: sl.sal.value, tempEvents: sl.temp.inputEvents, salEvents: sl.sal.inputEvents,
+                 co2Events: sl.co2.inputEvents, msg: msg(a), errors: a.errors.slice() };
+  var marker = arcsPerDraw(a);
+  a.estimate({ co2: 425, temp: 24.9, sal: 35.1, pH: 8.0312, omega: 3.4567 }); var e1 = msg(a);
+  a.userMoves("co2", 800); a.estimate({ co2: 800, temp: 24.9, sal: 35.1, pH: 7.7999, omega: 2.128 }); var e2 = msg(a);
+  var ringAfterCo2 = arcsPerDraw(a);
+  a.estimate({ error: true }); var e3 = msg(a);
+  out.pickHawaii = { start: start, hawaii: hawaii, plainDraw: plainDraw, markerDraw: marker, e1: e1, e2: e2, e3: e3, ringAfterCo2: ringAfterCo2 };
+  for (var i = 0; i < 18; i++) a.press("east"); a.run();
+  out.pickFarSide = arcsPerDraw(a);
+  for (var i = 0; i < 18; i++) a.press("west"); a.run();
+  a.userMoves("temp", 10);
+  out.pickCleared = { msg: msg(a), ring: arcsPerDraw(a) };
+  var b = loaded(); b.tap(22.5, -158.5);
+  b.estimate({ co2: 425, temp: 20, sal: 35.1, pH: 7.9, omega: 1.1 });
+  out.pickOtherInputs = msg(b);
+})();
+
+(function () {
+  var a = loaded(), sl = a.sliders;
+  for (var i = 0; i < 17; i++) a.press("east"); a.run();                              // the Sahara
+  a.useCenter.dispatch("click", {});
+  out.pickLand = { temp: sl.temp.value, sal: sl.sal.value, events: sl.temp.inputEvents + sl.sal.inputEvents, msg: msg(a) };
+  var c = loaded(); c.tap(22.5, -158.5); c.run();
+  for (var i = 0; i < 17; i++) c.press("east"); c.run();
+  c.useCenter.dispatch("click", {}); var landMsg = msg(c);
+  c.estimate({ co2: 425, temp: 24.9, sal: 35.1, pH: 8, omega: 3 });
+  out.pickLandThenEstimate = { before: landMsg, after: msg(c), temp: c.sliders.temp.value };
+})();
+
+(function () {
+  var a = loaded(), sl = a.sliders;
+  for (var i = 0; i < 18; i++) a.press("east"); for (var i = 0; i < 4; i++) a.press("north"); a.run();       // the Baltic Sea, 60 N 20 E
+  a.useCenter.dispatch("click", {});
+  out.pickBaltic = { temp: sl.temp.value, sal: sl.sal.value, events: sl.temp.inputEvents + sl.sal.inputEvents, msg: msg(a) };
+  /*LOWSPOT*/
+  var w = loaded(), ws = w.sliders;
+  for (var i = 0; i < LOW[0]; i++) w.press("north"); for (var i = 0; i < LOW[1]; i++) w.press("east"); w.run();
+  w.useCenter.dispatch("click", {});
+  out.pickLowSalinity = { view: w.view(), temp: ws.temp.value, sal: ws.sal.value, msg: msg(w) };
+})();
+
+(function () {
+  var edited = JSON.parse(JSON.stringify(sources.data)); edited.salinity_psu[112 * 360 + 21] = null;             // Hawaii loses its salinity
+  var a = makeEnv({ globeJs: sources.globeJs, data: edited }, { canvasWidth: 240 }); a.start(); a.run();
+  a.tap(22.5, -158.5);
+  out.pickOneMissing = { temp: a.sliders.temp.value, sal: a.sliders.sal.value, events: a.sliders.temp.inputEvents + a.sliders.sal.inputEvents, msg: msg(a) };
+  var n = loaded({ canvasWidth: 240, noCalculator: true }); n.tap(22.5, -158.5);
+  out.pickNoCalculator = { msg: msg(n), errors: n.errors };
+  var slow = makeEnv(sources, { fetch: "manual", canvasWidth: 240 }); slow.start(); slow.useCenter.dispatch("click", {});
+  out.pickNotLoaded = slow.pickText.textContent;
+  var failed = makeEnv(sources, { fetch: "reject", canvasWidth: 240 }); failed.start(); failed.useCenter.dispatch("click", {});
+  out.pickLoadFailed = failed.pickText.textContent;
+  var d = loaded(), m = middle(d); drag(d, 60, 0);
+  d.pointer("pointerdown", m.x, m.y, { button: 2 }); d.pointer("pointerup", m.x, m.y, { button: 2 }); d.hover(20, -190);
+  d.pointer("pointerdown", m.x, m.y); d.pointer("pointercancel", m.x, m.y);
+  out.pickNotFromDragHoverRightClickOrCancel = { events: d.sliders.temp.inputEvents + d.sliders.sal.inputEvents + d.sliders.co2.inputEvents, text: d.pickText.textContent };
+})();
 return out;
 """
 
 if runtime is None:
     print("skip  page-code checks: no node or jsc found (macOS has jsc)")
 else:
-    page_run = run_page(PAGE_SCENARIOS)
+    Tf = [None if v is None else v * SCALE for v in T]
+    Sf = [None if v is None else v * SCALE for v in S]
+    low_spot = next((la, lo) for la in (70, 80, 60) for lo in range(-180, 180, 10)
+                    if ref_sample(Sf, la, lo) is not None and ref_sample(Tf, la, lo) is not None and 21 <= ref_sample(Sf, la, lo) <= 29)
+    presses = ((low_spot[0] - 20) // 10, ((low_spot[1] + 160) % 360) // 10)
+    page_run = run_page(PAGE_SCENARIOS.replace("/*LOWSPOT*/", f"var LOW = [{presses[0]}, {presses[1]}];"))
     P = page_run
 
     def near(view, lat, lon, tol=0.15):
@@ -583,7 +654,7 @@ else:
     near(P["dragUp"], 20 - 60 * per_pixel, -160)
     assert P["dragFarUp"]["lat"] == -90.0 and P["dragFarDown"]["lat"] == 90.0, (P["dragFarUp"], P["dragFarDown"])
     assert -180 <= P["dragFarLeft"]["lon"] < 180
-    assert P["readoutAfterDrag"] == "Hover or tap the globe for a value."
+    assert P["readoutAfterDrag"] == "Hover for a value. Click or tap a spot to use it in the calculator."
     print(f"ok  dragging right turns the globe west and dragging up turns it south ({per_pixel:.3f} degrees per pixel), "
           "stopping at the poles and wrapping around the dateline")
 
@@ -624,7 +695,7 @@ else:
     sal, plain, temp = P["salinity"], P["plain"], P["temperature"]
     assert sal["aria"] == "Globe colored by sea surface salinity" and sal["title"] == "Sea surface salinity (PSU)", sal
     assert sal["ticks"] == ["≤ 31", "33", "35", "≥ 38"] and sal["legendHidden"] is False and sal["desc"] == layers_js["salinity"]["description"], sal
-    assert sal["readout"] == "Hover or tap the globe for a value." and sal["bar"].startswith("linear-gradient(to right, #440154"), sal
+    assert sal["readout"] == "Hover for a value. Click or tap a spot to use it in the calculator." and sal["bar"].startswith("linear-gradient(to right, #440154"), sal
     assert plain["legendHidden"] is True and plain["aria"].startswith("Globe colored by nothing") and plain["center"].endswith(", ocean"), plain
     assert temp["aria"] == "Globe colored by sea surface temperature" and temp["ticks"] == ["≤ −2", "10", "20", "30"], temp
     assert temp["desc"] == layers_js["temperature"]["description"] and temp["legendHidden"] is False and temp["errors"] == [], temp
@@ -633,7 +704,7 @@ else:
     assert P["readTemperature"] == "24.9 °C at 22.5°N, 158.5°W", P["readTemperature"]
     assert P["readSalinity"] == "35.06 PSU at 22.5°N, 158.5°W", P["readSalinity"]
     assert P["readPlain"] == "Ocean at 22.5°N, 158.5°W" and P["readPlainLand"].startswith("Land or no data at "), (P["readPlain"], P["readPlainLand"])
-    assert P["readOutside"] == "Hover or tap the globe for a value." == P["readLeave"]
+    assert P["readOutside"] == "Hover for a value. Click or tap a spot to use it in the calculator." == P["readLeave"]
     near(P["saharaView"], 20, 10)
     assert P["saharaCenter"] == "Center of the view: 20.0°N, 10.0°E, land or no data" and P["readLand"] == "Land or no data at 20.0°N, 10.0°E"
     print("ok  readouts: value and unit, ocean, 'land or no data' (the legend's own words), and the hint off the globe")
@@ -655,12 +726,57 @@ else:
     assert rs["width"] == rs["height"] == 400 and rs["errors"] == [], rs
     print("ok  without a canvas context there is a message; without ResizeObserver it still resizes; resizing redraws")
 
+
+    # clicking the globe sends the spot to the calculator
+    k = P["pickHawaii"]; h = k["hawaii"]
+    assert k["start"] == {"co2": "425", "temp": "15", "sal": "35"}, k["start"]
+    assert (h["temp"], h["sal"], h["co2"]) == ("24.9", "35.1", "425"), h               # the data at Hawaii; carbon dioxide untouched
+    assert (h["tempEvents"], h["salEvents"], h["co2Events"]) == (1, 1, 0) and h["errors"] == [], h   # one 'input' event each, as for a drag
+    base = "The calculator now uses 24.9 °C and 35.1 PSU from 22.5°N, 158.5°W (CO₂ unchanged)."
+    assert h["msg"] == {"text": base, "est": "", "linkHidden": False}, h["msg"]
+    assert k["markerDraw"] == k["plainDraw"] + 2, (k["markerDraw"], k["plainDraw"])    # a ring (two circles) is drawn on the spot
+    assert k["e1"] == {"text": base, "est": "At 425 ppm CO₂: pH 8.031, Ω 3.46.", "linkHidden": False}, k["e1"]
+    assert k["e2"]["est"] == "At 800 ppm CO₂: pH 7.800, Ω 2.13." and k["e2"]["text"] == base, k["e2"]   # follows the CO2 slider
+    assert k["ringAfterCo2"] == k["plainDraw"] + 2
+    assert k["e3"]["est"] == "The calculator couldn't get an estimate; click the spot again to retry.", k["e3"]
+    assert P["pickFarSide"] == k["plainDraw"], "the ring should not show on the far side of the globe"
+    assert P["pickCleared"] == {"msg": {"text": "", "est": "", "linkHidden": True}, "ring": k["plainDraw"]}, P["pickCleared"]
+    assert P["pickOtherInputs"] == {"text": base, "est": "", "linkHidden": False}, P["pickOtherInputs"]
+    print("ok  clicking sets temperature and salinity to the data there (CO₂ untouched), tells the calculator as a drag would, "
+          "draws a ring, follows the estimate (also when CO₂ moves, or fails), and clears itself if you move a slider")
+
+    ld = P["pickLand"]
+    assert (ld["temp"], ld["sal"], ld["events"]) == ("15", "35", 0) and ld["msg"]["linkHidden"] is True, ld
+    assert ld["msg"]["text"] == "Land or no data at 20.0°N, 10.0°E, so the calculator was not changed.", ld
+    lt = P["pickLandThenEstimate"]
+    assert lt["before"] == lt["after"] and lt["after"]["est"] == "" and lt["temp"] == "24.9", lt   # a late estimate does not rewrite it
+    om = P["pickOneMissing"]
+    assert (om["temp"], om["sal"], om["events"]) == ("15", "35", 0), om
+    assert om["msg"]["text"] == "No salinity data at 22.5°N, 158.5°W, so the calculator was not changed.", om
+    assert P["pickNoCalculator"]["msg"]["text"] == "The calculator isn't on this page." and P["pickNoCalculator"]["errors"] == []
+    assert P["pickNotLoaded"] == "The ocean data hasn't loaded yet."
+    assert P["pickLoadFailed"] == "The ocean data couldn't be loaded, so the calculator was not changed. Reload the page to try again."
+    assert P["pickNotFromDragHoverRightClickOrCancel"] == {"events": 0, "text": ""}, P["pickNotFromDragHoverRightClickOrCancel"]
+    print("ok  land, a missing layer, a missing calculator and missing data change nothing and say why; "
+          "dragging, hovering, right-clicking and a cancelled touch never change the calculator")
+
+    bs = ref_sample(Sf, 60.0, 20.0)
+    bal = P["pickBaltic"]
+    assert bs < 20 and (bal["temp"], bal["sal"], bal["events"]) == ("15", "35", 0), (bs, bal)
+    assert bal["msg"]["text"] == f"Salinity at 60.0°N, 20.0°E is {bs:.2f} PSU, outside this calculator's range (20 to 42 PSU), so the calculator was not changed.", bal
+    lw = P["pickLowSalinity"]; ls_, lt_ = ref_sample(Sf, *low_spot), ref_sample(Tf, *low_spot)
+    assert abs(float(lw["sal"]) - ls_) <= 0.06 and abs(float(lw["temp"]) - lt_) <= 0.06, (lw, ls_, lt_)
+    assert "Below 30 PSU the real alkalinity is probably lower than the model's 2300 µmol/kg" in lw["msg"]["text"], lw
+    print(f"ok  brackish water ({bs:.1f} PSU in the Baltic) leaves the calculator alone; low-salinity Arctic water "
+          f"({ls_:.1f} PSU at {low_spot[0]}N {low_spot[1]}E) is used with a what-if warning")
+
 # =====================================================================================
 # 4. The page itself
 # =====================================================================================
 page = (PUBLIC / "index.html").read_text(encoding="utf-8")
 js = GLOBE_JS.read_text(encoding="utf-8")
 for element in ("globe", "globe-status", "globe-readout", "globe-center", "globe-description", "globe-announce",
+                "globe-use-center", "globe-pick", "globe-pick-link", "calculator", "temp", "sal", "co2",
                 "globe-legend", "legend-title", "legend-bar", "legend-ticks", "globe-west", "globe-east", "globe-north",
                 "globe-south", "globe-zoom-in", "globe-zoom-out", "globe-reset",
                 "layer-temperature", "layer-salinity", "layer-plain"):
@@ -686,6 +802,16 @@ print("ok  the page has the globe (a labelled image, not a focus trap), the laye
 
 assert not re.search(r"https?://", page + js), "the page should not load anything from other websites"
 print("ok  nothing is loaded from other websites")
+
+# The globe finds the calculator's sliders by id and reads their limits from the page; the page must announce each estimate
+assert re.search(r'<input id="temp" type="range" min="-2" max="35" step="0\.1"', page), "the temperature slider must step by 0.1"
+assert re.search(r'<input id="sal" type="range" min="20" max="42" step="0\.1"', page), "the salinity slider must step by 0.1"
+assert 'id="calculator"' in page and 'href="#calculator"' in page and 'id="globe-title"' in page and 'href="#globe-title"' in page
+assert 'new CustomEvent("estimate", {detail: data})' in page, "the calculator must announce each estimate to the globe"
+assert 'new CustomEvent("estimate", {detail: {error: true}})' in page, "the calculator must tell the globe when an estimate fails"
+assert 'id="globe-pick-estimate"' in page and not re.search(r'id="globe-pick-estimate"[^>]*role=', page), "the estimate must not be a second live region"
+assert 'window.addEventListener("estimate"' in js and 'new Event("input", { bubbles: true })' in js
+print("ok  the calculator's sliders step by 0.1 (so a clicked value fits), it announces each estimate, and the link to it works")
 
 # Every local file the page asks for exists, with exactly the right capital letters (Vercel's servers care; a Mac does not)
 on_disk = {p.relative_to(PUBLIC).as_posix() for p in PUBLIC.rglob("*") if p.is_file()}

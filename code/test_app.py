@@ -186,7 +186,8 @@ finder = SliderFinder()
 finder.feed((ROOT / "public" / "index.html").read_text(encoding="utf-8"))
 
 # 11. Page sliders and API limits agree (a slider must never offer a value the API refuses)
-assert set(finder.sliders) == set(web.LIMITS), finder.sliders.keys()
+# The calculator's sliders (the CO2 graph's year picker is a slider too, but not a calculator input)
+assert set(finder.sliders) == set(web.LIMITS) | {"co2-year"}, finder.sliders.keys()
 for name, (low, high) in web.LIMITS.items():
     s = finder.sliders[name]
     assert (float(s["min"]), float(s["max"])) == (low, high), (name, s)
@@ -194,7 +195,7 @@ for name, (low, high) in web.LIMITS.items():
 print("ok  slider min/max match API limits")
 
 # 12. Page defaults give the default pH shown in test 4
-defaults = {name: s["value"] for name, s in finder.sliders.items()}
+defaults = {name: s["value"] for name, s in finder.sliders.items() if name in web.LIMITS}
 assert defaults == {"co2": "425", "temp": "15", "sal": "35"}, defaults
 print("ok  slider defaults are 425 ppm, 15 C, salinity 35")
 

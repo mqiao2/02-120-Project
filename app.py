@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "code"))
 import ocean_chem as oc  # noqa: E402
 
 # Allowed (min, max) for each input. The sliders in public/index.html match.
-LIMITS = {"co2": (250, 1000), "temp": (-2, 35), "sal": (20, 42)}
+LIMITS = {"co2": (250, 1100), "temp": (-2, 35), "sal": (20, 42)}
 
 app = Flask(__name__, static_folder=None)
 

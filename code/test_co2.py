@@ -133,7 +133,7 @@ function makePage(options) {
   var page = { svg: add("co2-chart"), picker: add("co2-year"), out: add("co2-year-out"), message: add("co2-pick"), status: add("co2-status"),
               estimate: add("co2-pick-estimate"), link: add("co2-pick-link"), errors: errors };
   page.link.hidden = true;
-  if (!options.noPathwayBox) { page.ssp = add("co2-ssp"); page.ssp.disabled = true; page.ssp.value = ""; page.sspInfo = add("co2-ssp-info"); }
+  if (!options.noPathwayBox) { page.ssp = add("co2-ssp"); page.ssp.disabled = true; page.ssp.value = options.sspKept || ""; page.sspInfo = add("co2-ssp-info"); }
   var winListeners = {};
   page.told = [];                                                     // what the graph told the rest of the page
   var window = { addEventListener: function (t, fn) { (winListeners[t] = winListeners[t] || []).push(fn); },
@@ -143,9 +143,10 @@ function makePage(options) {
   page.status.textContent = "Loading CO₂ data…"; page.picker.disabled = true;
   if (!options.noCalculator) {
     var co2 = page.co2 = add("co2"), current = "425";
-    co2.min = "250"; co2.max = "1000"; co2.step = "1";
+    var calcMax = options.calcMax || 1100;                 // as on the page (SSP5 reaches 1,089 ppm by 2100)
+    co2.min = "250"; co2.max = String(calcMax); co2.step = "1";
     Object.defineProperty(co2, "value", { get: function () { return current; },
-      set: function (v) { var n = Math.max(250, Math.min(1000, Math.round(Number(v)))); current = String(n); } });
+      set: function (v) { var n = Math.max(250, Math.min(calcMax, Math.round(Number(v)))); current = String(n); } });
   }
   function Ev(type, init) { this.type = type; this.bubbles = !!(init && init.bubbles); }
   var document = { getElementById: function (id) { return byId[id] || null; }, createElement: function (tag) { return new El(tag); } };
@@ -280,8 +281,8 @@ else:
     print("ok  clicking the graph above 2000 picks 2000 and moves the year picker there")
     assert P["cleared"] == {"message": "", "out": "Pick a year", "marker": False, "co2": "600"}, P["cleared"]
     v2000 = ppm[years.index(2000)]
-    assert P["told"] == [{"detail": {"year": 1990, "ppm": v1990}, "co2Then": "425"},
-                         {"detail": {"year": 2000, "ppm": v2000}, "co2Then": str(round(v1990))},
+    assert P["told"] == [{"detail": {"year": 1990, "ppm": v1990, "pathway": None}, "co2Then": "425"},
+                         {"detail": {"year": 2000, "ppm": v2000, "pathway": None}, "co2Then": str(round(v1990))},
                          {"detail": None, "co2Then": "600"}], P["told"]
     print("ok  moving the CO2 slider by hand clears the year")
     print("ok  the graph tells the page (the globe) each picked year before moving the CO2 slider, and null when it's cleared")
@@ -306,6 +307,11 @@ else:
                five: C.svgMarkup(chartData, -1, { view: fv, ssp: sspData, pathway: "SSP5" }),
                one: C.svgMarkup(chartData, chartData.years.indexOf(1990), { view: fv, ssp: sspData, pathway: "SSP1" }),
                every: chartData.years.map(function (y, i) { return C.svgMarkup(chartData, i, { view: fv, ssp: sspData, pathway: "SSP3" }); }),
+               at2063: C.pathwayAt(sspData.pathways[1], 2063), at2020: C.pathwayAt(sspData.pathways[1], 2020),
+               at2100: C.pathwayAt(sspData.pathways[4], 2100), at2025: C.pathwayAt(sspData.pathways[0], 2025),
+               tlNone: C.timeline(chartData, null), tl: C.timeline(chartData, sspData.pathways[1]),
+               futureEvery: C.timeline(chartData, sspData.pathways[2]).years.map(function (y, i, all) {
+                 return C.svgMarkup(chartData, i, { view: fv, ssp: sspData, pathway: "SSP3", points: C.timeline(chartData, sspData.pathways[2]) }); }),
                x2020: sf.x(C.FUTURE_FROM), W: C.W, H: C.H, PAD: C.PAD };
     """)
     def lines(markup):
@@ -317,7 +323,25 @@ else:
         w = len(text) * size * 0.58
         left = x - w if anchor == "end" else x - w / 2 if anchor == "middle" else x
         return left, y - size * 0.75, left + w, y + size * 0.2
+    s2 = dict(zip(ssp["pathways"][1]["years"], ssp["pathways"][1]["ppm"]))
+    assert abs(F["at2063"] - (s2[2060] + 0.3 * (s2[2070] - s2[2060]))) < 1e-9 and F["at2020"] == s2[2020], F["at2063"]
+    assert F["at2100"] == end["SSP5"] and abs(F["at2025"] - (ssp["pathways"][0]["ppm"][2] + ssp["pathways"][0]["ppm"][3]) / 2) < 1e-9
+    assert F["tlNone"] == {"years": years, "ppm": ppm, "measured": len(years), "pathway": ""}, "without a pathway the slider has only measured years"
+    tl = F["tl"]
+    assert tl["years"] == years + list(range(years[-1] + 1, 2101)) and tl["measured"] == len(years) and tl["pathway"] == "SSP2", tl["years"][60:70]
+    assert tl["ppm"][:len(years)] == ppm and abs(tl["ppm"][tl["years"].index(2063)] - F["at2063"]) < 1e-9
+    print(f"ok  with a pathway the Year slider runs {years[0]}-2100 ({len(tl['years'])} years); years between the decade values are on a straight line")
     axis_y = F["H"] - F["PAD"]["bottom"]
+    for year, markup in zip(F["tl"]["years"], F["futureEvery"]):   # future years too, on SSP3
+        a = box(markup, "marker-label", 17)
+        assert a[3] < axis_y and a[0] >= 0 and a[2] <= F["W"], (year, a)
+        for _, d in lines(markup):
+            pts = [tuple(map(float, q[1:].split(","))) for q in d.split()]
+            for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
+                for k in range(21):
+                    x, y = xa + (xb - xa) * k / 20, ya + (yb - ya) * k / 20
+                    assert not (a[0] - 2 <= x <= a[2] + 2 and a[1] - 2 <= y <= a[3] + 2), (year, a, x, y)
+    assert re.search(r'class="marker-label"[^>]*>2063: [\d.]+ ppm</text>', F["futureEvery"][F["tl"]["years"].index(2063)])
     for year, markup in zip(years, F["every"]):
         a, b = box(markup, "marker-label", 17), box(markup, "note-label", 15)
         assert a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1], (year, a, b)       # never on the preindustrial label
@@ -389,6 +413,26 @@ else:
       out.anim.back = { ticks: a.xTicks(), ssp: a.svg.innerHTML.indexOf('class="ssp') >= 0 };
       var b = makePage({ frames: true }); b.choosePathway("SSP1"); b.runFrames([0, 100]); b.runTimers();   // frames stop: the timer finishes
       out.anim.stalled = b.xTicks(); b.runFrames([5000, 5100]); out.anim.stalledLater = b.xTicks();
+      var y = makePage(); var i2063 = chartData.years.length + (2063 - chartData.years[chartData.years.length - 1] - 1);
+      out.yr = { maxBefore: y.picker.max };
+      y.choosePathway("SSP2"); out.yr.maxSsp = y.picker.max; out.yr.thumb = y.picker.value;
+      y.pick(i2063);
+      out.yr.p2063 = { co2: y.co2.value, msg: y.message.textContent, out: y.out.textContent, told: y.told[y.told.length - 1].detail,
+                       marker: y.svg.innerHTML.indexOf('class="marker"') >= 0 };
+      y.pick(i2063 + 7); out.yr.p2070 = y.message.textContent;
+      y.pick(i2063); y.choosePathway("SSP5");
+      out.yr.switched = { co2: y.co2.value, msg: y.message.textContent, picker: y.picker.value, told: y.told[y.told.length - 1].detail };
+      y.pick(Number(y.picker.max)); out.yr.p2100 = { co2: y.co2.value, msg: y.message.textContent };
+      y.clickAt(y.api.scales(y.api.futureView(chartData.years)).x(2080)); out.yr.click2080 = { picker: y.picker.value, out: y.out.textContent };
+      y.choosePathway("");
+      out.yr.none = { max: y.picker.max, value: y.picker.value, msg: y.message.textContent, out: y.out.textContent,
+                      told: y.told[y.told.length - 1].detail, marker: y.svg.innerHTML.indexOf('class="marker"') >= 0 };
+      var m = makePage(); m.pick(5); m.choosePathway("SSP4"); m.choosePathway("");
+      out.yr.measuredKept = { out: m.out.textContent, picker: m.picker.value, max: m.picker.max };
+      var cap = makePage({ calcMax: 1000 }); cap.choosePathway("SSP5"); cap.pick(Number(cap.picker.max));
+      out.yr.capped = { co2: cap.co2.value, msg: cap.message.textContent };
+      var kept = makePage({ sspKept: "SSP3" });
+      out.yr.kept = { value: kept.ssp.value, info: kept.sspInfo.textContent, ssp: kept.svg.innerHTML.indexOf('class="ssp') >= 0, max: kept.picker.max };
       var k = makePage({ noPathwayBox: true }); out.noBox = { fetched: k.fetched.slice(), errors: k.errors };
       return out;
     """)
@@ -400,13 +444,36 @@ else:
     assert s5["info"] == "SSP5, Fossil-fueled Development (Taking the Highway): CO₂ reaches 560 ppm by 2050 and 1,089 ppm by 2100, the highest of the five by then.", s5["info"]
     assert s5["on"] == 2 and s5["has2100"] and s5["errors"] == [], s5        # the line and its label
     assert s5["aria"].endswith("Future pathways to 2100: SSP1 608 ppm, SSP2 790 ppm, SSP3 834 ppm, SSP4 718 ppm, SSP5 1089 ppm; SSP5 is highlighted."), s5["aria"]
-    assert Q["futureClick"]["co2"] == Q["futureClick"]["before"] and Q["futureClick"]["message"] == "", Q["futureClick"]
+    assert Q["futureClick"]["co2"] != Q["futureClick"]["before"] and "the SSP5 pathway's value for 20" in Q["futureClick"]["message"], Q["futureClick"]   # the future part picks a pathway year
     assert Q["pastClick"] == {"co2": str(round(ppm[years.index(1990)])), "ssp": True}, Q["pastClick"]
     assert Q["ssp1"].endswith("608 ppm by 2100, the lowest of the five by then.") and Q["ssp2"] == "SSP2, Middle of the Road: CO₂ reaches 511 ppm by 2050 and 790 ppm by 2100.", (Q["ssp1"], Q["ssp2"])
     assert Q["none"]["info"] == "" and Q["none"]["ssp"] is False and Q["none"]["has2100"] is False and "Future" not in Q["none"]["aria"], Q["none"]
     assert Q["unknown"]["info"] == "" and Q["unknown"]["ssp"] is False and "Future" not in Q["unknown"]["aria"], Q["unknown"]
     assert Q["sspFailed"] == {"disabled": True, "info": "Couldn't load the future pathways. Reload the page to try again.", "drawn": True, "status": ""}, Q["sspFailed"]
     assert Q["sspFour"]["disabled"] is True and Q["sspFour"]["info"].startswith("Couldn't load"), Q["sspFour"]
+    yr, n = Q["yr"], len(years)
+    v63 = {pid["id"]: None for pid in ssp["pathways"]}
+    def at(pid, year):
+        pts = dict(zip(*[next(p for p in ssp["pathways"] if p["id"] == pid)[k] for k in ("years", "ppm")]))
+        lo = year // 10 * 10
+        return pts[lo] if year % 10 == 0 else pts[lo] + (pts[lo + 10] - pts[lo]) * (year - lo) / 10
+    assert (yr["maxBefore"], yr["maxSsp"], yr["thumb"]) == (str(n - 1), str(n - 1 + 2100 - years[-1]), str(n - 1)), yr
+    p63 = yr["p2063"]; ssp2_63 = at("SSP2", 2063)
+    assert p63["co2"] == str(round(ssp2_63)) and p63["marker"] and p63["out"] == f"2063: {ssp2_63:.1f} ppm (SSP2)", p63
+    assert p63["msg"] == f"The calculator now uses {round(ssp2_63)} ppm CO₂, the SSP2 pathway's value for 2063 ({ssp2_63:.1f} ppm, between its 2060 and 2070 values).", p63["msg"]
+    assert p63["told"] == {"year": 2063, "ppm": ssp2_63, "pathway": "SSP2"}, p63["told"]
+    assert yr["p2070"] == f"The calculator now uses {round(at('SSP2', 2070))} ppm CO₂, the SSP2 pathway's value for 2070 ({at('SSP2', 2070):.1f} ppm).", yr["p2070"]
+    sw = yr["switched"]; ssp5_63 = at("SSP5", 2063)
+    assert sw["co2"] == str(round(ssp5_63)) and sw["msg"].startswith(f"The calculator now uses {round(ssp5_63)} ppm CO₂, the SSP5 pathway's value for 2063"), sw
+    assert sw["told"]["pathway"] == "SSP5" and sw["picker"] == str(n + 2063 - years[-1] - 1), sw
+    assert yr["p2100"] == {"co2": "1089", "msg": "The calculator now uses 1089 ppm CO₂, the SSP5 pathway's value for 2100 (1089.0 ppm)."}, yr["p2100"]
+    assert yr["click2080"] == {"picker": str(n + 2080 - years[-1] - 1), "out": f"2080: {at('SSP5', 2080):.1f} ppm (SSP5)"}, yr["click2080"]
+    assert yr["none"] == {"max": str(n - 1), "value": str(n - 1), "msg": "", "out": "Pick a year", "told": None, "marker": False}, yr["none"]
+    assert yr["measuredKept"] == {"out": f"{years[5]}: {ppm[5]:.1f} ppm", "picker": "5", "max": str(n - 1)}, yr["measuredKept"]
+    assert yr["capped"]["co2"] == "1000" and yr["capped"]["msg"].endswith("(1089.0 ppm). That is as high as the calculator goes."), yr["capped"]
+    assert yr["kept"] == {"value": "", "info": "", "ssp": False, "max": str(n - 1)}, yr["kept"]
+    print("ok  the Year slider extends to 2100 on the picked pathway: future years set the calculator (1,089 ppm for SSP5 in 2100), "
+          "switching pathways keeps the year, None takes the future years away; the page always opens on None")
     an = Q["anim"]; future_ticks = ",".join(str(y) for y in range(1960, 2101, 20)); measured_ticks = ",".join(str(y) for y in range(1960, 2021, 10))
     assert an["before"] == measured_ticks and an["middle"] not in (measured_ticks, future_ticks), an     # it moves gradually
     assert an["end"] == an["afterTimer"] == future_ticks and an["framesLeft"] == 0, an
@@ -415,7 +482,7 @@ else:
     print("ok  the graph slides to 2100 and back over several frames; a newer pick takes over, and if frames stop a timer finishes the move")
     assert Q["mainFailed"] == ["/data/co2_yearly.json"] and Q["noBox"] == {"fetched": ["/data/co2_yearly.json"], "errors": []}, (Q["mainFailed"], Q["noBox"])
     print("ok  the pathway box lists SSP1-SSP5, describes the pick, extends the graph to 2100 and back; clicks in the future part "
-          "change nothing; a failed pathways file leaves the box off and the graph working")
+          "pick a pathway year; a failed pathways file leaves the box off and the graph working")
 
 # ---------------------------------------------------------------- 3. the page
 page = (PUBLIC / "index.html").read_text(encoding="utf-8")
@@ -432,7 +499,7 @@ W_js, H_js = (int(re.search(rf'var W = (\d+), H = (\d+);', js).group(k)) for k i
 assert f'viewBox="0 0 {W_js} {H_js}"' in page, "the page's graph size must match co2chart.js"
 assert page.index('src="/co2chart.js"') > page.index('id="co2-status"')
 assert not re.search(r"https?://", page + js), "nothing should be loaded from other websites"
-assert re.search(r'<select id="co2-ssp" disabled>\s*<option value="">None: measured CO₂ only</option>\s*</select>', page)
+assert re.search(r'<select id="co2-ssp" autocomplete="off" disabled>\s*<option value="">None: measured CO₂ only</option>\s*</select>', page)
 assert page.index('id="co2-year"') < page.index('id="co2-ssp"') < page.index('id="co2-ssp-info"'), "the pathway box sits under the Year slider"
 light = re.search(r":root \{ (--ssp0: #\w+; --ssp1: #\w+; --ssp2: #\w+; --ssp3: #\w+; --ssp4: #\w+;) \}", page)
 dark = re.search(r"prefers-color-scheme: dark\) \{ :root \{ (--ssp0[^}]+) \} \}", page)

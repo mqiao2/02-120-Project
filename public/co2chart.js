@@ -50,6 +50,25 @@ var Co2Chart = (function () {
   }
   function last(list) { return list[list.length - 1]; }
 
+  // A pathway's CO2 in `year`, a straight line between its data points (2020, 2030, ... 2100).
+  function pathwayAt(p, year) {
+    for (var i = 1; i < p.years.length; i++) {
+      if (year <= p.years[i]) {
+        var a = p.years[i - 1], b = p.years[i];
+        return p.ppm[i - 1] + (p.ppm[i] - p.ppm[i - 1]) * (year - a) / (b - a);
+      }
+    }
+    return last(p.ppm);
+  }
+
+  // The years the Year slider can pick: the measured years, then (with a pathway) every year to 2100 on that pathway.
+  // `measured` is how many of them are measured.
+  function timeline(data, p) {
+    var years = data.years.slice(), ppm = data.ppm.slice(), measured = years.length;
+    if (p) for (var y = last(data.years) + 1; y <= FUTURE_TO; y++) { years.push(y); ppm.push(pathwayAt(p, y)); }
+    return { years: years, ppm: ppm, measured: measured, pathway: p ? p.id : "" };
+  }
+
   // Label heights for the line ends: each wants `want[i]`; push them apart so none are closer than `gap`.
   function spreadLabels(want, gap, low, high) {
     var order = want.map(function (y, i) { return i; }).sort(function (a, b) { return want[a] - want[b]; });
@@ -117,9 +136,10 @@ var Co2Chart = (function () {
     parts.push('<clipPath id="co2-plot"><rect x="' + x0 + '" y="' + y0 + '" width="' + f1(x1 - x0) + '" height="' + (y1 - y0) + '"/></clipPath>');
     if (options.ssp && view.to > data.years[data.years.length - 1] + 1) parts.push(pathwayMarkup(options.ssp, options.pathway || "", s, x1, y0, y1));
     parts.push('<path class="line" clip-path="url(#co2-plot)" d="' + d + '"/>');
-    if (selected >= 0) {
-      var px = s.x(data.years[selected]), py = s.y(data.ppm[selected]);
-      var label = data.years[selected] + ": " + data.ppm[selected].toFixed(1) + " ppm";
+    var pts = options.points || timeline(data, null);
+    if (selected >= 0 && selected < pts.years.length) {
+      var px = s.x(pts.years[selected]), py = s.y(pts.ppm[selected]);
+      var label = pts.years[selected] + ": " + pts.ppm[selected].toFixed(1) + " ppm";   // the highlighted line shows which pathway
       var future = view.to > data.years[data.years.length - 1] + 1;
       // Measured view: under the rising line, or left of the point near the right edge. Future view: the measured
       // line lies low and flat under the preindustrial label, so the label goes to the empty top of the dashed
@@ -164,13 +184,16 @@ var Co2Chart = (function () {
     if (!svg || !picker) return;
     var data = null, selected = -1, applying = false;
     var ssp = null, pathway = "", view = null, animation = 0;
+    var points = null;           // the years the Year slider picks from (see timeline)
 
     function draw() {
       if (!view) view = measuredView(data.years);
-      svg.innerHTML = svgMarkup(data, selected, { view: view, ssp: ssp, pathway: pathway });
+      svg.innerHTML = svgMarkup(data, selected, { view: view, ssp: ssp, pathway: pathway, points: points });
     }
 
-    function describe(i) { return data.years[i] + ": " + data.ppm[i].toFixed(1) + " ppm"; }
+    function describe(i) {
+      return points.years[i] + ": " + points.ppm[i].toFixed(1) + " ppm" + (i >= points.measured ? " (" + points.pathway + ")" : "");
+    }
 
     // Set the calculator's CO2 slider, telling the calculator with the same "input" event a drag sends.
     function choose(i) {
@@ -182,9 +205,10 @@ var Co2Chart = (function () {
       var co2 = document.getElementById("co2");
       if (!co2) { messageEl.textContent = "The calculator isn't on this page."; return; }
       if (estimateEl) estimateEl.textContent = "";
-      var wanted = Math.round(data.ppm[i]);
+      var year = points.years[i], value = points.ppm[i], future = i >= points.measured;
+      var wanted = Math.round(value);
       var set = Math.max(Number(co2.min), Math.min(Number(co2.max), wanted));
-      tellPage({ year: data.years[i], ppm: data.ppm[i] });   // before the calculator's new estimate comes back
+      tellPage({ year: year, ppm: value, pathway: future ? points.pathway : null });   // before the calculator's new estimate comes back
       applying = true;
       try {
         co2.value = String(set);
@@ -192,8 +216,15 @@ var Co2Chart = (function () {
       } finally {
         applying = false;
       }
-      messageEl.textContent = "The calculator now uses " + co2.value + " ppm CO₂, the " + data.years[i] +
-        " average at Mauna Loa (" + data.ppm[i].toFixed(1) + " ppm).";
+      if (!future) {
+        messageEl.textContent = "The calculator now uses " + co2.value + " ppm CO₂, the " + year +
+          " average at Mauna Loa (" + value.toFixed(1) + " ppm).";
+      } else {
+        var decade = Math.floor(year / 10) * 10;
+        messageEl.textContent = "The calculator now uses " + co2.value + " ppm CO₂, the " + points.pathway + " pathway's value for " +
+          year + " (" + value.toFixed(1) + " ppm" + (year % 10 ? ", between its " + decade + " and " + (decade + 10) + " values" : "") + ")." +
+          (Number(co2.value) !== wanted ? " That is as high as the calculator goes." : "");
+      }
       if (linkEl) linkEl.hidden = false;
     }
 
@@ -233,8 +264,8 @@ var Co2Chart = (function () {
       if (!rect.width) return;
       var x = (e.clientX - rect.left) / rect.width * W;    // into the drawing's own units
       var year = scales(view || measuredView(data.years)).yearAt(x);
-      if (year > data.years[data.years.length - 1] + 1.5) return;   // the future part: there is no measured CO2 to use
-      choose(nearestIndex(data.years, year));
+      if (year > last(points.years) + 1.5) return;     // past the last year there is CO2 for (the future, with no pathway picked)
+      choose(nearestIndex(points.years, year));
     });
 
     // Moving the CO2 slider by hand means the calculator no longer shows that year.
@@ -276,6 +307,12 @@ var Co2Chart = (function () {
       if (!data || !ssp) return;
       var p = ssp.pathways.filter(function (q) { return q.id === id; })[0] || null;
       pathway = p ? p.id : "";
+      var pickedYear = selected >= 0 ? points.years[selected] : null, wasFuture = selected >= points.measured;
+      points = timeline(data, p);
+      picker.max = String(points.years.length - 1);
+      if (Number(picker.value) > points.years.length - 1) picker.value = String(points.measured - 1);
+      if (wasFuture && p) choose(points.years.indexOf(pickedYear));   // the same year, on the new pathway
+      else if (wasFuture) clearPick();                 // no pathway: no CO2 for that year (the thumb was moved back above)
       if (sspInfo) sspInfo.textContent = p ? describePathway(p) : "";
       describeGraph();
       moveTo(p ? futureView(data.years) : measuredView(data.years));
@@ -301,6 +338,7 @@ var Co2Chart = (function () {
       .then(function (d) {
         if (!valid(d)) throw new Error("unexpected data");
         data = d;
+        points = timeline(d, null);
         picker.min = "0"; picker.max = String(d.years.length - 1); picker.step = "1";
         picker.value = String(d.years.length - 1);          // the thumb starts at the latest year, but nothing is changed yet
         picker.setAttribute("aria-valuetext", "No year picked");
@@ -331,8 +369,8 @@ var Co2Chart = (function () {
             option.textContent = p.id + ": " + p.name;
             sspBox.appendChild(option);
           });
+          sspBox.value = "";                               // always start with None, even if the browser kept an older choice
           sspBox.disabled = false;
-          if (sspBox.value) choosePathway(sspBox.value);   // a choice the browser kept from before a reload
         })
         .catch(function () {
           if (sspInfo) sspInfo.textContent = "Couldn't load the future pathways. Reload the page to try again.";
@@ -350,5 +388,5 @@ var Co2Chart = (function () {
   return { W: W, H: H, PAD: PAD, PREINDUSTRIAL: PREINDUSTRIAL, Y_MIN: Y_MIN, Y_MAX: Y_MAX,
            FUTURE_FROM: FUTURE_FROM, FUTURE_TO: FUTURE_TO, measuredView: measuredView, futureView: futureView, between: between,
            scales: scales, nearestIndex: nearestIndex, svgMarkup: svgMarkup, valid: valid, validSsp: validSsp,
-           ranks: ranks, spreadLabels: spreadLabels };
+           ranks: ranks, spreadLabels: spreadLabels, pathwayAt: pathwayAt, timeline: timeline };
 })();

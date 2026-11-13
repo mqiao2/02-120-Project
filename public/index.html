@@ -152,7 +152,7 @@
     <div class="card" id="calculator" role="region" aria-label="Calculator">
       <div class="control">
         <label for="co2">Atmospheric CO₂ <span id="co2-out" class="value-out" aria-hidden="true"></span></label>
-        <input id="co2" type="range" min="250" max="1000" step="1" value="425">
+        <input id="co2" type="range" min="250" max="1100" step="1" value="425">
         <p class="hint">Preindustrial ≈ 280 ppm. Mauna Loa, early Aug 2025: ≈ 425 ppm.
           Or pick a year on the CO₂ graph below. <a href="#co2-title">Go to the graph</a></p>
       </div>
@@ -266,11 +266,13 @@
         <a id="co2-pick-link" href="#calculator" hidden>Go to the calculator</a></p>
       <div class="control">
         <label for="co2-ssp">Future pathway</label>
-        <select id="co2-ssp" disabled>
+        <select id="co2-ssp" autocomplete="off" disabled>
           <option value="">None: measured CO₂ only</option>
         </select>
         <p class="hint">Pick one to extend the graph to 2100 with all five Shared Socioeconomic Pathways (SSPs),
-          colored by their CO₂ in 2100 from lowest (green) to highest (red); the one you pick is highlighted.</p>
+          colored by their CO₂ in 2100 from lowest (green) to highest (red); the one you pick is highlighted.
+          The Year slider then runs to 2100 on that pathway. The pathways give one value per decade,
+          so years in between are read off a straight line between them.</p>
         <p id="co2-ssp-info" class="co2-ssp-info" role="status"></p>
       </div>
       <p class="note">Data: NOAA Mauna Loa Observatory. Each year is the average of its 12 monthly averages of the daily record;

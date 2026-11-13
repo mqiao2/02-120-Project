@@ -95,9 +95,14 @@ close(get_omega(700, 5, 30), 0.9887, TOL_OMEGA, "omega: all three moved (just co
 corners = {
     (250, -2, 20): (8.2705, 1.4658), (250, -2, 42): (8.2041, 1.9743),
     (250, 35, 20): (8.2887, 5.7712), (250, 35, 42): (8.1758, 5.7623),
-    (1000, -2, 20): (7.7012, 0.4262), (1000, -2, 42): (7.6530, 0.6241),
-    (1000, 35, 20): (7.7926, 2.3507), (1000, 35, 42): (7.7102, 2.6995),
+    (1100, -2, 20): (7.6610, 0.3894), (1100, -2, 42): (7.6135, 0.5722),
+    (1100, 35, 20): (7.7558, 2.1826), (1100, 35, 42): (7.6752, 2.5276),
 }
+# The old 1000 ppm corners, checked before the limit was raised to 1100 (SSP5 reaches 1,089 ppm by 2100)
+for point, (ph, omega) in {(1000, -2, 20): (7.7012, 0.4262), (1000, -2, 42): (7.6530, 0.6241),
+                           (1000, 35, 20): (7.7926, 2.3507), (1000, 35, 42): (7.7102, 2.6995)}.items():
+    close(get_ph(*point), ph, TOL, f"{point} pH")
+    close(get_omega(*point), omega, TOL_OMEGA, f"{point} omega")
 assert set(corners) == set(itertools.product(*[(lo, hi) for lo, hi in web.LIMITS.values()]))
 for point, (ph, omega) in corners.items():
     close(get_ph(*point), ph, TOL, f"corner {point} pH")

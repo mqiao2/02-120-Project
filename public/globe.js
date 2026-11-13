@@ -398,7 +398,9 @@ var OceanGlobe = (function () {
     // The line after the spot: the CO2 year (if one is picked on the graph), then the result.
     function showEstimate() {
       if (!awaiting || !picked) { pickEstimateEl.textContent = ""; return; }
-      var year = co2Year ? "Atmospheric CO₂ in " + co2Year.year + " was " + co2Year.ppm.toFixed(1) + " ppm." : "";
+      var year = !co2Year ? "" : co2Year.pathway
+        ? "On pathway " + co2Year.pathway + ", atmospheric CO₂ in " + co2Year.year + " would be " + co2Year.ppm.toFixed(1) + " ppm."
+        : "Atmospheric CO₂ in " + co2Year.year + " was " + co2Year.ppm.toFixed(1) + " ppm.";
       pickEstimateEl.textContent = [year, resultText].filter(Boolean).join(" ");
     }
 
@@ -459,7 +461,8 @@ var OceanGlobe = (function () {
     // changed, so the old result is out of date until the calculator's next estimate.
     window.addEventListener("co2year", function (e) {
       var d = e.detail;
-      co2Year = d && typeof d.year === "number" && typeof d.ppm === "number" ? { year: d.year, ppm: d.ppm } : null;
+      co2Year = d && typeof d.year === "number" && typeof d.ppm === "number"
+        ? { year: d.year, ppm: d.ppm, pathway: typeof d.pathway === "string" ? d.pathway : null } : null;
       resultText = "";
       showEstimate();
     });

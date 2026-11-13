@@ -578,6 +578,8 @@ function msg(env) { return { text: env.pickText.textContent, est: env.pickEstima
   y.estimate({ co2: 340, temp: 24.9, sal: 35.1, pH: 8.1121, omega: 4.12 }); var y2 = msg(y);
   y.userMoves("co2", 600); y.co2year(null); var y3 = msg(y);
   y.estimate({ co2: 600, temp: 24.9, sal: 35.1, pH: 7.9, omega: 3 }); var y4 = msg(y);
+  y.co2year({ year: 2063, ppm: 712.44, pathway: "SSP2" }); y.userMoves("co2", 712);
+  y.estimate({ co2: 712, temp: 24.9, sal: 35.1, pH: 7.85, omega: 2.5 }); var y5 = msg(y);
   var z = loaded(); z.co2year({ year: 1990, ppm: 354.4 }); var z0 = msg(z);       // nothing picked on the globe yet
   z.tap(22.5, -158.5); z.run(); var z1 = msg(z);
   z.userMoves("temp", 10); var z2 = msg(z);
@@ -585,7 +587,7 @@ function msg(env) { return { text: env.pickText.textContent, est: env.pickEstima
   late.co2year({ year: 1990, ppm: 354.4 }); late.userMoves("co2", 354);
   late.estimate({ co2: 425, temp: 24.9, sal: 35.1, pH: 8.0312, omega: 3.4567 });   // the answer for the old CO2 arrives late
   out.pickLateOldCo2 = msg(late);
-  out.pickYear = { y1: y1, y2: y2, y3: y3, y4: y4, z0: z0, z1: z1, z2: z2, errors: y.errors.concat(z.errors) };
+  out.pickYear = { y1: y1, y2: y2, y3: y3, y4: y4, y5: y5, z0: z0, z1: z1, z2: z2, errors: y.errors.concat(z.errors) };
 })();
 
 (function () {
@@ -774,6 +776,7 @@ else:
     assert yr["y1"] == {"text": base, "est": "Atmospheric CO₂ in 1981 was 339.9 ppm.", "linkHidden": False}, yr["y1"]
     assert yr["y2"]["est"] == "Atmospheric CO₂ in 1981 was 339.9 ppm. Result: pH 8.112, Ω 4.12.", yr["y2"]
     assert yr["y3"]["est"] == "" and yr["y4"]["est"] == "Result: pH 7.900, Ω 3.00.", (yr["y3"], yr["y4"])
+    assert yr["y5"]["est"] == "On pathway SSP2, atmospheric CO₂ in 2063 would be 712.4 ppm. Result: pH 7.850, Ω 2.50.", yr["y5"]
     assert yr["z0"] == {"text": "", "est": "", "linkHidden": True}, yr["z0"]
     assert yr["z1"] == {"text": base, "est": "Atmospheric CO₂ in 1990 was 354.4 ppm.", "linkHidden": False}, yr["z1"]
     assert yr["z2"] == {"text": "", "est": "", "linkHidden": True}, yr["z2"]

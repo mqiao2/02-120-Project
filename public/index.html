@@ -139,6 +139,7 @@
     .legend-ticks span.max { right: 0; transform: none; }
     .legend-land { max-width: 520px; margin: .25rem auto 0; font-size: .8rem; color: var(--muted); }
     .swatch { display: inline-block; width: .9rem; height: .9rem; border-radius: 3px; vertical-align: -.1rem; margin-right: .35rem; background: #c4bfae; border: 1px solid var(--muted); }
+    .swatch-fresh { background: #8c8c8c; margin-left: .75rem; }
   </style>
 </head>
 <body>
@@ -211,6 +212,8 @@
         <label for="layer-temperature">Temperature</label>
         <input id="layer-salinity" type="radio" name="layer" value="salinity">
         <label for="layer-salinity">Salinity</label>
+        <input id="layer-omega" type="radio" name="layer" value="omega">
+        <label for="layer-omega">Saturation (Ω)</label>
         <input id="layer-plain" type="radio" name="layer" value="plain">
         <label for="layer-plain">Plain</label>
       </div>
@@ -244,12 +247,14 @@
         <div id="legend-bar" class="legend-bar"></div>
         <div id="legend-ticks" class="legend-ticks"></div>
       </div>
-      <p class="legend-land"><span class="swatch"></span>Land, or no data</p>
+      <p class="legend-land"><span class="swatch"></span>Land, or no data
+        <span id="legend-too-fresh" hidden><span class="swatch swatch-fresh"></span>Too fresh to estimate Ω</span></p>
 
       <p class="note">Data: NOAA World Ocean Atlas 2023, 1° grid: the average of all measurements
         from 1955 to 2022, over all months, at the surface (the top 10 m where the surface value
         is missing). Temperature colors: ColorBrewer RdYlBu. Salinity colors: viridis, a scale
-        that stays readable for color-blind viewers.</p>
+        that stays readable for color-blind viewers. Saturation (Ω) is worked out for each grid cell with the same
+        equations as the calculator, at the calculator's CO₂; colors: ColorBrewer RdBu, split at Ω = 1.</p>
     </section>
 
     <section class="card co2-card" aria-labelledby="co2-title">
@@ -358,6 +363,7 @@
     updateResults();
   </script>
   <script src="/co2chart.js" defer onerror="var s = document.getElementById('co2-status'); s.textContent = 'The CO₂ graph could not be loaded. Reload the page to try again.';"></script>
+  <script src="/chem.js" defer></script>
   <script src="/globe.js" defer onerror="var s = document.getElementById('globe-status'); s.hidden = false; s.textContent = 'The globe could not be loaded. Reload the page to try again.';"></script>
 </body>
 </html>

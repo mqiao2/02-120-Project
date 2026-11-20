@@ -145,7 +145,8 @@ print("ok  smoothing: mostly-fresh spots read 'too fresh', a fresh neighbor is l
       "and temperature below 0 still blends normally")
 assert D["fmt"] == "Ω 2.35" and D["fmtT"] == "25.6 °C", (D["fmt"], D["fmtT"])
 end = (" of the ocean surface has Ω below 1 (red), where seawater dissolves aragonite shells. Ω is lowest in cold polar water "
-       "and highest in the warm tropics. Gray water is too fresh for this model (salinity below 20); below about 30 the real Ω is likely lower than shown.")
+       "and highest in the warm tropics. Near the poles the real Ω is likely higher than shown: the surface water there holds less CO₂ "
+       "than the air would put in it. Gray water is too fresh for this model (salinity below 20); below about 30 the real Ω is likely lower than shown.")
 assert D["describe"] == ["At 1089 ppm CO₂, none" + end, "At 1089 ppm CO₂, less than 0.1%" + end,
                          "At 1089 ppm CO₂, 1.2%" + end, "At 1089 ppm CO₂, 28%" + end], D["describe"]
 print("ok  the description gives the corrosive share sensibly from none to 28%")

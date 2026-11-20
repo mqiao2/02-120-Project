@@ -808,7 +808,9 @@ else:
     cd = P["pickCold"]; ct, cs_ = ref_sample(Tf, *cold_spot), ref_sample(Sf, *cold_spot)
     assert cd["temp"] == "-2", cd
     assert re.fullmatch(r"At [\d.]+°N, [\d.]+°[EW], average annual temperature is -2\.\d °C and salinity is [\d.]+ PSU\. "
-                        r"That temperature is just outside the calculator's range \(-2 to 35 °C\), so it uses -2\.0 °C\.", cd["msg"]["text"]), cd
+                        r"That temperature is just outside the calculator's range \(-2 to 35 °C\), so it uses -2\.0 °C\. "
+                        r"Polar surface water usually holds less CO₂ than the air would put in it, which makes the real Ω higher than the model's\.",
+                        cd["msg"]["text"]), cd
     assert abs(float(cd["msg"]["text"].split("temperature is ")[1].split(" °C")[0]) - ct) <= 0.06, (cd, ct)
     assert ref_sample(Tf, 71.5, -158.5) == -0.03 and "average annual temperature is 0.0 °C and" in P["pickNearZero"], P["pickNearZero"]
     print(f"ok  water colder than the calculator allows ({ct:.2f} °C at {cold_spot[0]}N {cold_spot[1]}E) says so and uses -2.0 °C")

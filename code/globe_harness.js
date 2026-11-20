@@ -2,9 +2,12 @@
 // when the data fails to load) can be tested without a browser. code/test_globe.py loads this file
 // under jsc (built into macOS) or node and drives it. Nothing here is sent to the website.
 //
-//   var env = makeEnv({ globeJs: "<source of public/globe.js>", data: <the parsed json> }, options);
+//   var env = makeEnv({ globeJs: "<source of public/globe.js>", data: <the parsed json>, alk: <alkalinity json, optional> }, options);
 //
-// options: fetch ("ok", "reject", "404", "badjson", "shape", "short", "manual"), reduceMotion, dpr,
+// options: fetch ("ok", "reject", "404", "badjson", "shape", "short", "manual") for the ocean data,
+//          alkFetch ("ok", "reject", "404", "shape", "manual"; default "ok" when sources.alk is given, else "404"),
+//          useAlk (the "Use local alkalinity" box starts ticked), noAlkControls,
+//          checkedLayer (the layer button checked when the page starts, as a browser may restore it), reduceMotion, dpr,
 //          canvasWidth (css pixels), noResizeObserver, noContext, captureThrows.
 // Everything here is synchronous: time only moves when a test calls env.frame() or env.advance().
 "use strict";
@@ -127,9 +130,11 @@ function makeEnv(sources, options) {
     env.buttons[name] = add("BUTTON", "globe-" + name);
   });
   env.tooFresh = add("SPAN", "legend-too-fresh"); env.tooFresh.hidden = true;
-  env.radios = ["temperature", "salinity", "omega", "plain"].map(function (v) {
-    var r = new Element("INPUT", "layer-" + v); r.value = v; r.name = "layer"; r.checked = (v === "temperature"); return r;
+  env.noAlk = add("SPAN", "legend-no-alk"); env.noAlk.hidden = true;
+  env.radios = ["temperature", "salinity", "omega", "alkalinity", "plain"].map(function (v) {
+    var r = new Element("INPUT", "layer-" + v); r.value = v; r.name = "layer"; r.checked = (v === (options.checkedLayer || "temperature")); byId[r.id] = r; return r;
   });
+  env.radio = function (v) { return env.radios.filter(function (r) { return r.value === v; })[0]; };
   env.useCenter = add("BUTTON", "globe-use-center");
   env.pickText = add("SPAN", "globe-pick"); env.pickEstimate = add("SPAN", "globe-pick-estimate"); env.pickLink = add("A", "globe-pick-link"); env.pickLink.hidden = true;
 
@@ -154,6 +159,10 @@ function makeEnv(sources, options) {
     temp: makeSlider("temp", -2, 35, 0.1, 15),
     sal: makeSlider("sal", 20, 42, 0.1, 35)
   };
+  if (!options.noCalculator && !options.noAlkControls) {
+    env.sliders.alk = makeSlider("alk", 1000, 2700, 1, 2300);
+    env.useAlk = add("INPUT", "use-alk"); env.useAlk.checked = !!options.useAlk;
+  }
 
   var document = {
     getElementById: function (id) { return byId[id] || null; },
@@ -215,10 +224,19 @@ function makeEnv(sources, options) {
   };
 
   // ---- fetch, in several flavors
-  var release = null;
+  var release = null, releaseAlk = null;
   function okResponse(data) { return { ok: true, status: 200, json: function () { return SyncPromise.resolve(data); } }; }
   function fakeFetch(url) {
     env.fetchUrls.push(url);
+    if (/alkalinity/.test(url)) {
+      switch (options.alkFetch || (sources.alk ? "ok" : "404")) {
+        case "ok": return SyncPromise.resolve(okResponse(sources.alk));
+        case "reject": return SyncPromise.reject(new TypeError("Failed to fetch"));
+        case "404": return SyncPromise.resolve({ ok: false, status: 404, json: function () { return SyncPromise.reject(new SyntaxError("Unexpected token <")); } });
+        case "shape": return SyncPromise.resolve(okResponse({ alkalinity_umol_kg: [1, 2] }));
+        case "manual": return new SyncPromise(function (resolve) { releaseAlk = function () { resolve(okResponse(sources.alk)); }; });
+      }
+    }
     var short = { scale: 0.01, temperature_c: [1, 2, 3], salinity_psu: [1, 2, 3] };
     switch (options.fetch || "ok") {
       case "ok": return SyncPromise.resolve(okResponse(sources.data));
@@ -231,6 +249,7 @@ function makeEnv(sources, options) {
     }
   }
   env.releaseData = function () { release(); };
+  env.releaseAlk = function () { releaseAlk(); };
 
   // ---- run the page code
   var factory = new Function("document", "window", "fetch", "requestAnimationFrame", "cancelAnimationFrame",
@@ -256,6 +275,7 @@ function makeEnv(sources, options) {
   };
   env.press = function (name) { return env.buttons[name].dispatch("click", {}); };
   env.pick = function (layer) {
+    if (env.radio(layer).disabled) return false;                       // a disabled button can't be chosen
     env.radios.forEach(function (r) { r.checked = (r.value === layer); });
     env.radios.filter(function (r) { return r.value === layer; })[0].dispatch("change", {});
   };
@@ -282,6 +302,10 @@ function makeEnv(sources, options) {
   env.estimate = function (detail) { return win.dispatchEvent(new FakeCustomEvent("estimate", { detail: detail })); };
   env.userMoves = function (name, value) {                              // someone drags a calculator slider
     var slider = env.sliders[name]; slider.value = value; slider.dispatchEvent(new FakeEvent("input", { bubbles: true }));
+  };
+  env.tick = function (on) {                                            // someone ticks or clears "Use local alkalinity"
+    env.useAlk.checked = on;                                            // (the calculator's own script is tested on its own)
+    env.useAlk.dispatch("change", {});
   };
   env.hover = function (lat, lon) {
     var p = env.spot(lat, lon);

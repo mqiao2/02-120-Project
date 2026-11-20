@@ -60,21 +60,24 @@ def rejects(args, word):
 GOOD = {"co2": "425", "temp": "15", "sal": "35"}
 
 # 1. read_inputs: ordinary case gives floats
-assert web.read_inputs(GOOD) == {"co2": 425.0, "temp": 15.0, "sal": 35.0}
+assert web.read_inputs(GOOD) == {"co2": 425.0, "temp": 15.0, "sal": 35.0, "alk": 2300.0}   # alk is optional
 assert all(isinstance(v, float) for v in web.read_inputs(GOOD).values())
 print("ok  read_inputs: valid input -> floats")
 
 # 2. read_inputs: both edges of every range are allowed, just outside is not
-for name, (low, high) in web.LIMITS.items():
+RANGES = {**web.LIMITS, **{name: (low, high) for name, (low, high, _) in web.OPTIONAL.items()}}
+assert RANGES["alk"] == (1000, 2700), RANGES
+for name, (low, high) in RANGES.items():
     for edge in (low, high):
         assert web.read_inputs({**GOOD, name: str(edge)})[name] == edge
     rejects({**GOOD, name: str(low - 0.01)}, name)
     rejects({**GOOD, name: str(high + 0.01)}, name)
-print("ok  read_inputs: edges accepted, just-outside rejected (all 3 inputs)")
+print("ok  read_inputs: edges accepted, just-outside rejected (all 4 inputs)")
 
 # 3. read_inputs: missing, empty, junk, nan and inf are all rejected
-for name in web.LIMITS:
-    rejects({k: v for k, v in GOOD.items() if k != name}, name)
+for name in RANGES:
+    if name in web.LIMITS:
+        rejects({k: v for k, v in GOOD.items() if k != name}, name)
     for junk in ("", "abc", "4 2 5", "nan", "inf", "-inf"):
         rejects({**GOOD, name: junk}, name)
 print("ok  read_inputs: missing / empty / junk / nan / inf rejected")
@@ -122,9 +125,28 @@ print(f"ok  warmer -> higher omega: {[round(o, 3) for o in warm]}")
 
 # 7. The response has pH and omega and echoes the inputs it used
 data = client.get("/api/ph?co2=700&temp=5&sal=30").get_json()
-assert set(data) == {"pH", "omega", "co2", "temp", "sal"}, data
-assert (data["co2"], data["temp"], data["sal"]) == (700.0, 5.0, 30.0), data
-print("ok  response has pH, omega and echoes co2, temp, sal")
+assert set(data) == {"pH", "omega", "co2", "temp", "sal", "alk"}, data
+assert (data["co2"], data["temp"], data["sal"], data["alk"]) == (700.0, 5.0, 30.0, 2300.0), data
+print("ok  response has pH, omega and echoes co2, temp, sal, alk")
+
+# 7b. Local alkalinity: alk=2300 is exactly the default; more alkalinity -> higher pH and omega; and the
+#     pH returned really does give the requested alkalinity (worked back with the alkalinity equation)
+import ocean_chem as oc  # noqa: E402
+assert client.get("/api/ph?co2=425&temp=15&sal=35&alk=2300").get_json() == get_result(425, 15, 35)
+by_alk = [client.get(f"/api/ph?co2=425&temp=5&sal=33&alk={a}").get_json() for a in (1000, 1800, 2150, 2300, 2450, 2700)]
+assert all(a["pH"] < b["pH"] and a["omega"] < b["omega"] for a, b in zip(by_alk, by_alk[1:])), by_alk
+for d in by_alk:
+    h = 10 ** -d["pH"]
+    co2 = oc.k0(5, 33) * oc.xco2_to_fco2(425, 5, 33)
+    K1, K2, KB = oc.k1(5, 33), oc.k2(5, 33), oc.kb(5, 33)
+    alk = K1 * co2 / h + 2 * K1 * K2 * co2 / h**2 + oc.total_boron(33) * KB / (KB + h) + oc.kw(5, 33) / h - h
+    assert abs(alk * 1e6 - d["alk"]) < 1e-6, (alk * 1e6, d)
+assert 0.1 < by_alk[0]["omega"] < 1 < by_alk[-1]["omega"], by_alk     # 1000 is corrosive, 2700 is not
+for query in ("alk=999", "alk=2701", "alk=abc", "alk="):
+    response = client.get("/api/ph?co2=425&temp=15&sal=35&" + query)
+    assert response.status_code == 400 and "alk" in response.get_json()["error"], (query, response.get_json())
+print("ok  alk: 2300 = the default, more alkalinity -> higher pH and omega, the pH solves the alkalinity "
+      "equation for the alk given, and values outside 1000-2700 are refused")
 
 # 8. Bad requests get a 400 with a JSON error, not a crash
 for query, word in [("", "co2"), ("co2=425&temp=15", "sal"), ("co2=abc&temp=15&sal=35", "co2"),
@@ -147,12 +169,12 @@ for path in ("/app.py", "/code/ocean_chem.py", "/requirements.txt", "/journal/x.
 print("ok  repo files are not served; paths that climb out of public/ are refused")
 
 # 9b. Like Vercel, locally the files in public/ are served from the site root (the globe needs these)
-for path, kind in (("/globe.js", "javascript"), ("/data/surface_1deg.json", "json")):
+for path, kind in (("/globe.js", "javascript"), ("/data/surface_1deg.json", "json"), ("/data/alkalinity_1deg.json", "json")):
     response = client.get(path)
     assert response.status_code == 200 and kind in response.headers["Content-Type"], (path, response.headers)
     assert len(response.get_data()) > 1000, path
     response.close()
-print("ok  /globe.js and /data/surface_1deg.json are served")
+print("ok  /globe.js, /data/surface_1deg.json and /data/alkalinity_1deg.json are served")
 
 # 10. The home page is served and has the three sliders and the assumption note
 home = client.get("/")
@@ -168,6 +190,7 @@ class SliderFinder(HTMLParser):
     def __init__(self):
         super().__init__()
         self.sliders = {}
+        self.checkboxes = {}
         self.label_for = set()   # ids that a <label for=...> points at
         self.in_label = 0
         self.nested = []         # form controls found inside a <label> (invalid HTML)
@@ -181,6 +204,8 @@ class SliderFinder(HTMLParser):
             self.nested.append(tag)
         if tag == "input" and attrs.get("type") == "range":
             self.sliders[attrs["id"]] = attrs
+        if tag == "input" and attrs.get("type") == "checkbox":
+            self.checkboxes[attrs["id"]] = attrs
 
     def handle_endtag(self, tag):
         if tag == "label":
@@ -192,20 +217,23 @@ finder.feed((ROOT / "public" / "index.html").read_text(encoding="utf-8"))
 
 # 11. Page sliders and API limits agree (a slider must never offer a value the API refuses)
 # The calculator's sliders (the CO2 graph's year picker is a slider too, but not a calculator input)
-assert set(finder.sliders) == set(web.LIMITS) | {"co2-year"}, finder.sliders.keys()
-for name, (low, high) in web.LIMITS.items():
+assert set(finder.sliders) == set(RANGES) | {"co2-year"}, finder.sliders.keys()
+for name, (low, high) in RANGES.items():
     s = finder.sliders[name]
     assert (float(s["min"]), float(s["max"])) == (low, high), (name, s)
     assert low <= float(s["value"]) <= high and float(s["step"]) > 0, (name, s)
 print("ok  slider min/max match API limits")
 
-# 12. Page defaults give the default pH shown in test 4
-defaults = {name: s["value"] for name, s in finder.sliders.items() if name in web.LIMITS}
-assert defaults == {"co2": "425", "temp": "15", "sal": "35"}, defaults
-print("ok  slider defaults are 425 ppm, 15 C, salinity 35")
+# 12. Page defaults give the default pH shown in test 4; the alkalinity slider starts off, at the fixed 2300
+defaults = {name: s["value"] for name, s in finder.sliders.items() if name in RANGES}
+assert defaults == {"co2": "425", "temp": "15", "sal": "35", "alk": "2300"}, defaults
+assert "disabled" in finder.sliders["alk"] and finder.checkboxes.get("use-alk") is not None, finder.checkboxes
+assert "checked" not in finder.checkboxes["use-alk"] and finder.checkboxes["use-alk"].get("autocomplete") == "off"
+assert 'if (name !== "alk" || useAlk.checked) query.set(name, el.value);' in page, "alk is sent only when the box is ticked"
+print("ok  slider defaults are 425 ppm, 15 C, salinity 35; alkalinity starts unticked and fixed at 2300")
 
 # 13. Valid label markup: every slider has a label, and no form control sits inside a label
-assert set(finder.sliders) <= finder.label_for, (finder.sliders.keys(), finder.label_for)
+assert set(finder.sliders) | set(finder.checkboxes) <= finder.label_for, (finder.sliders.keys(), finder.label_for)
 assert finder.nested == [], finder.nested
 print("ok  every slider has a label; no form control nested inside a label")
 

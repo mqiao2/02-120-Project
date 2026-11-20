@@ -51,4 +51,13 @@ a = oc.carbonate_system(np.array([280, 400, 800]), 10, 35)
 assert a["pH"].shape == (3,) and np.all(np.diff(a["pH"]) < 0)
 print("ok  array input")
 
+# 8. Local alkalinity: more alkalinity -> higher pH and omega; the inverse solver recovers the air's fCO2
+low, high = oc.carbonate_system(400, 5, 33, alk=2150e-6), oc.carbonate_system(400, 5, 33, alk=2400e-6)
+assert high["pH"] > low["pH"] and high["omega"] > low["omega"]
+print(f"ok  alkalinity 2150 -> 2400 umol/kg raises omega {float(low['omega']):.2f} -> {float(high['omega']):.2f}")
+for xco2, t, s, alk in [(400, 25, 35, 2300e-6), (280, -1.5, 32, 2150e-6), (1000, 10, 30, 2000e-6)]:
+    r = oc.carbonate_system(xco2, t, s, alk=alk)
+    back = oc.fco2_from_alk_dic(alk, r["dic"], t, s)
+    close(float(back / oc.xco2_to_fco2(xco2, t, s)), 1.0, 1e-9, f"fCO2 round trip at {xco2} ppm, {t} C")
+
 print("\nAll tests passed.")

@@ -1,8 +1,9 @@
-/* Ocean globe: a draggable Earth colored by sea surface temperature, salinity, or aragonite
-   saturation (Ω, worked out in the browser by public/chem.js for the calculator's CO2).
+/* Ocean globe: a draggable Earth colored by sea surface temperature, salinity, total alkalinity,
+   or aragonite saturation (Ω, worked out in the browser by public/chem.js for the calculator's CO2).
 
    The data is public/data/surface_1deg.json, built by code/build_globe_data.py from NOAA's
-   World Ocean Atlas 2023. There are no libraries: for every pixel of the globe we work out
+   World Ocean Atlas 2023, and public/data/alkalinity_1deg.json, built by
+   code/build_alkalinity_data.py from GLODAP (loaded separately: the globe works without it). There are no libraries: for every pixel of the globe we work out
    which latitude and longitude it shows, look that spot up in the data grid, and color it.
 
    The first part of this file is plain maths that needs no web page, so it can be tested
@@ -16,6 +17,10 @@ var OceanGlobe = (function () {
   var DEG = Math.PI / 180;
   var NLON = 360, NLAT = 180;          // one-degree grid: 360 columns, 180 rows, row 0 is the south
   var DATA_URL = "/data/surface_1deg.json";
+  var ALK_URL = "/data/alkalinity_1deg.json";
+  // Marked grids (Ω and alkalinity) use negative numbers for ocean cells with no value, and why:
+  var FRESH = -1;                      // too fresh for the model (salinity below SAL_MIN): no Ω
+  var NO_ALK = -2;                     // GLODAP has no alkalinity here
 
   // ---------- colors ----------
   // Temperature: ColorBrewer "RdYlBu", reversed, so cold is blue and warm is red.
@@ -42,12 +47,26 @@ var OceanGlobe = (function () {
                    "such as the Red Sea and the Mediterranean are saltier still, up to about 40. " +
                    "The freshest water (purple) is near large rivers and in the Arctic and the Baltic Sea."
     },
+    // Total alkalinity (GLODAP): ColorBrewer "YlGnBu", light yellow for low to dark blue for high.
+    // The scale covers almost all open ocean; river-fed coasts go below it and get the end color.
+    alkalinity: {
+      label: "Surface total alkalinity", unit: "µmol/kg", digits: 0, marked: true,
+      min: 2000, max: 2450, minLabel: "≤ 2000", maxLabel: "≥ 2450", ticks: [2100, 2200, 2300, 2400],
+      stops: ["#ffffd9", "#edf8b1", "#c7e9b4", "#7fcdbb", "#41b6c4", "#1d91c0", "#225ea8", "#253494", "#081d58"],
+      description: "Alkalinity is seawater's capacity to neutralize acid: with more of it, the same CO₂ leaves more " +
+                   "carbonate ions and a higher Ω. It follows salinity. It is highest (dark blue) in the salty " +
+                   "subtropics and in the Mediterranean, up to about 2600 µmol/kg, and lowest (yellow) " +
+                   "where rivers freshen the sea, down to about 1100 off the Lena River in the Siberian Arctic. " +
+                   "Striped gray: no data, mainly Hudson Bay, the Gulf of Mexico, the Red Sea, parts of the " +
+                   "Caribbean, the Beaufort Sea and the water around the North Pole, and the Black Sea, the Baltic " +
+                   "and the Persian Gulf, which were hardly measured."
+    },
     // Aragonite saturation: diverging around Ω = 1, red below (corrosive to shells), near white at 1,
     // blue above. The stops are 0.5 apart, so the third one (index 2) sits exactly at Ω = 1. The scale
     // is fixed, so a color means the same Ω at every CO2. Ω itself depends on CO2, so this layer has
     // no fixed description: describeOmega() writes one for the current CO2.
     omega: {
-      label: "Aragonite saturation", unit: "", prefix: "Ω ", digits: 2,
+      label: "Aragonite saturation", unit: "", prefix: "Ω ", digits: 2, marked: true,
       min: 0, max: 4.5, minLabel: "0", maxLabel: "≥ 4.5", ticks: [1, 2, 3],
       stops: ["#b2182b", "#ef8a62", "#f7f7f7", "#d1e5f0", "#b2d4e8", "#92c5de", "#6aaad1", "#4393c3", "#2166ac", "#053061"],
       tooFresh: [140, 140, 140],         // too fresh for the model (salinity below SAL_MIN): no Ω
@@ -57,6 +76,7 @@ var OceanGlobe = (function () {
   var SAL_MIN = 20;                    // the calculator's lowest salinity; below it fixed alkalinity is far off
   var PLAIN_DESCRIPTION = "Ocean is blue and land is tan. Grid cells with no data also show as tan.";
   var LAND = [196, 191, 174];          // land, and ocean the data does not cover
+  var NO_ALK_STRIPES = [[150, 150, 150], [105, 105, 105]];   // ocean with no alkalinity data: gray stripes
   var PLAIN_OCEAN = [44, 108, 160];    // the "plain" view
 
   var LUT_SIZE = 512;                  // colors are looked up in a table of this many steps
@@ -140,8 +160,15 @@ var OceanGlobe = (function () {
   // leaving out cells with no data (NaN). Gives NaN when less than half of the blend has
   // data, which is also what rounds off the blocky coastline. The picture and the readout
   // both use this, so the number you read always matches the color under the pointer.
-  // With `marked` (the Ω grid), values below 0 mark water too fresh for the model: they are left
-  // out of the blend like missing data, and the result is -1 when they make up most of it.
+  // With `marked` (the Ω and alkalinity grids), negative values mark ocean with no value: FRESH
+  // (too fresh for the model) or NO_ALK (no alkalinity data). They are left out of the blend like
+  // missing data, and the result is the mark itself when marked cells make up most of the blend.
+  var blend = { sum: 0, weight: 0, fresh: 0, gap: 0 };
+  function addCell(v, w, marked) {
+    if (v !== v) return;
+    if (marked && v < 0) { if (v === NO_ALK) blend.gap += w; else blend.fresh += w; return; }
+    blend.sum += w * v; blend.weight += w;
+  }
   function sampleSmooth(values, lat, lon, marked) {
     var gx = wrapLon(lon) + 179.5;                     // whole numbers are cell centers
     var gy = lat + 89.5;
@@ -151,13 +178,15 @@ var OceanGlobe = (function () {
     var xb = x0 + 1 >= NLON ? 0 : x0 + 1;
     var ya = y0 < 0 ? 0 : (y0 > NLAT - 1 ? NLAT - 1 : y0);
     var yb = y0 + 1 < 0 ? 0 : (y0 + 1 > NLAT - 1 ? NLAT - 1 : y0 + 1);
-    var sum = 0, weight = 0, fresh = 0, w, v;
-    w = (1 - fx) * (1 - fy); v = values[ya * NLON + xa]; if (v === v) { if (marked && v < 0) fresh += w; else { sum += w * v; weight += w; } }
-    w = fx * (1 - fy);       v = values[ya * NLON + xb]; if (v === v) { if (marked && v < 0) fresh += w; else { sum += w * v; weight += w; } }
-    w = (1 - fx) * fy;       v = values[yb * NLON + xa]; if (v === v) { if (marked && v < 0) fresh += w; else { sum += w * v; weight += w; } }
-    w = fx * fy;             v = values[yb * NLON + xb]; if (v === v) { if (marked && v < 0) fresh += w; else { sum += w * v; weight += w; } }
-    if (weight + fresh < 0.5) return NaN;               // mostly land or no data
-    return fresh > weight ? -1 : sum / weight;
+    blend.sum = 0; blend.weight = 0; blend.fresh = 0; blend.gap = 0;
+    addCell(values[ya * NLON + xa], (1 - fx) * (1 - fy), marked);
+    addCell(values[ya * NLON + xb], fx * (1 - fy), marked);
+    addCell(values[yb * NLON + xa], (1 - fx) * fy, marked);
+    addCell(values[yb * NLON + xb], fx * fy, marked);
+    var weight = blend.weight, marks = blend.fresh + blend.gap;
+    if (weight + marks < 0.5) return NaN;               // mostly land or no data
+    if (marks > weight) return blend.fresh >= blend.gap ? FRESH : NO_ALK;
+    return blend.sum / weight;
   }
 
   // ---------- drawing the globe ----------
@@ -171,7 +200,8 @@ var OceanGlobe = (function () {
     var layer = layerName ? LAYERS[layerName] : null;
     var lut = layer ? lutFor(layerName) : null;
     var perStep = layer ? (LUT_SIZE - 1) / (layer.max - layer.min) : 0;
-    var marked = !!(layer && layer.tooFresh);
+    var marked = !!(layer && layer.marked);
+    var stripe = Math.max(2, Math.round(size / 100));  // width of the "no alkalinity data" stripes, in pixels
     var i = 0;
     for (var py = 0; py < size; py++) {
       var y = (half - (py + 0.5)) / radius;
@@ -186,8 +216,9 @@ var OceanGlobe = (function () {
         var r, g, b;
         if (v !== v) {
           r = LAND[0]; g = LAND[1]; b = LAND[2];
-        } else if (v < 0 && layer && layer.tooFresh) {  // Ω grid: -1 marks water too fresh for the model
-          r = layer.tooFresh[0]; g = layer.tooFresh[1]; b = layer.tooFresh[2];
+        } else if (v < 0 && marked) {                   // ocean with no value: say why by its look
+          var mark = v === NO_ALK ? NO_ALK_STRIPES[Math.floor((px + py) / stripe) & 1] : layer.tooFresh;
+          r = mark[0]; g = mark[1]; b = mark[2];
         } else if (layer) {
           var k = (v - layer.min) * perStep;
           k = k < 0 ? 0 : (k > LUT_SIZE - 1 ? LUT_SIZE - 1 : k);
@@ -217,31 +248,50 @@ var OceanGlobe = (function () {
     return (layer.prefix || "") + text + (layer.unit ? " " + layer.unit : "");
   }
 
-  // Ω for every cell at `co2` ppm: NaN where there is no data, -1 where the water is too fresh
-  // for the model (salinity below SAL_MIN). Also the share of the ocean surface below Ω = 1,
-  // by area (a cell's area goes with the cosine of its latitude), counting only cells with an Ω.
-  function omegaGrid(co2, temperature, salinity, chem) {
+  // Ω for every cell at `co2` ppm: NaN where there is no data, FRESH where the water is too fresh
+  // for the model (salinity below SAL_MIN). With an `alkalinity` grid (µmol/kg), each cell uses its
+  // own alkalinity instead of the fixed 2300, and cells without one are NO_ALK. Also the share of
+  // the ocean surface below Ω = 1, by area (a cell's area goes with the cosine of its latitude),
+  // counting only cells with an Ω.
+  function omegaGrid(co2, temperature, salinity, chem, alkalinity) {
     var grid = new Float32Array(temperature.length), area = 0, corrosive = 0;
     for (var n = 0; n < grid.length; n++) {
       var t = temperature[n], s = salinity[n];
       if (t !== t || s !== s) { grid[n] = NaN; continue; }
-      if (s < SAL_MIN) { grid[n] = -1; continue; }
-      var omega = chem.carbonate(co2, t, s).omega;
+      if (s < SAL_MIN) { grid[n] = FRESH; continue; }
+      var alk;
+      if (alkalinity) {
+        if (!(alkalinity[n] > 0)) { grid[n] = NO_ALK; continue; }
+        alk = alkalinity[n] * 1e-6;
+      }
+      var omega = chem.carbonate(co2, t, s, alk).omega;
       grid[n] = omega;
       var w = Math.cos(((Math.floor(n / NLON)) - 89.5) * DEG);
       area += w;
       if (omega < 1) corrosive += w;
     }
-    return { grid: grid, co2: co2, corrosiveShare: area > 0 ? corrosive / area : 0 };
+    return { grid: grid, co2: co2, local: !!alkalinity, corrosiveShare: area > 0 ? corrosive / area : 0 };
   }
 
   // The words for the Ω layer at one CO2.
   function describeOmega(o) {
     var pct = o.corrosiveShare * 100;
     var share = pct === 0 ? "none" : pct < 0.1 ? "less than 0.1%" : (pct < 10 ? pct.toFixed(1) : Math.round(pct)) + "%";
-    return "At " + Math.round(o.co2) + " ppm CO₂, " + share + " of the ocean surface has Ω below 1 (red), where " +
-           "seawater dissolves aragonite shells. Ω is lowest in cold polar water and highest in the warm tropics. " +
-           "Gray water is too fresh for this model (salinity below " + SAL_MIN + "); below about 30 the real Ω is likely lower than shown.";
+    return "At " + Math.round(o.co2) + " ppm CO₂" + (o.local ? " with each spot's own alkalinity (GLODAP)" : "") + ", " + share +
+           " of the ocean surface has Ω below 1 (red), where seawater dissolves aragonite shells. " +
+           "Ω is lowest in cold polar water and highest in the warm tropics. " +
+           "Near the poles the real Ω is likely higher than shown: the surface water there holds less CO₂ than the air would put in it. " +
+           "Gray water is too fresh for this model (salinity below " + SAL_MIN + ")" +
+           (o.local ? "." : "; below about 30 the real Ω is likely lower than shown.") +   // with local alkalinity, already shown
+           (o.local ? " Striped gray: no alkalinity data, so no Ω." : "");
+  }
+
+  // Turn the alkalinity file's list into a grid: the value, NO_ALK for ocean (where `ocean` is 1)
+  // that GLODAP leaves out, NaN elsewhere.
+  function alkalinityGrid(list, ocean) {
+    var a = new Float32Array(list.length);
+    for (var n = 0; n < list.length; n++) a[n] = list[n] !== null ? list[n] : (ocean[n] === 1 ? NO_ALK : NaN);
+    return a;
   }
 
   // ---------- the page ----------
@@ -269,6 +319,8 @@ var OceanGlobe = (function () {
     var legendBar = document.getElementById("legend-bar");
     var legendTicks = document.getElementById("legend-ticks");
     var tooFreshEl = document.getElementById("legend-too-fresh");
+    var noAlkEl = document.getElementById("legend-no-alk");
+    var useAlkEl = document.getElementById("use-alk");    // the calculator's "Use local alkalinity" box
     var HINT = "Hover for a value. Click or tap a spot to use it in the calculator.";
 
     var HOME = { lat: 20, lon: -160, zoom: 1 };        // the Pacific, with Hawaii near the middle
@@ -282,6 +334,8 @@ var OceanGlobe = (function () {
     var co2Year = null;          // the year picked on the CO2 graph, { year, ppm }, while the calculator uses it
     var resultText = "";         // the calculator's latest result for the picked spot
     var loadFailed = false;      // true if the ocean data could not be loaded
+    var alkList = null;          // the alkalinity file's values, until the ocean data is here to make a grid
+    var alkFailed = false;       // true if the alkalinity data could not be loaded
 
     function globeRadius(width) { return width / 2 * 0.94 * state.zoom; }
 
@@ -348,11 +402,15 @@ var OceanGlobe = (function () {
     // The value at a spot as text ("25.6 °C"), or null when this layer has nothing there.
     function valueAt(lat, lon) {
       if (state.layer === "plain") return sampleSmooth(grids.ocean, lat, lon) === 1 ? "ocean" : null;
-      var v = sampleSmooth(gridFor(state.layer), lat, lon, state.layer === "omega");
+      var layer = LAYERS[state.layer], v = sampleSmooth(gridFor(state.layer), lat, lon, layer.marked);
       if (v !== v) return null;
-      if (v < 0) return "too fresh to estimate Ω";                  // the blend leans on cells marked -1
-      return formatValue(v, LAYERS[state.layer]);
+      if (v === FRESH) return "too fresh to estimate Ω";             // the blend leans on marked cells
+      if (v === NO_ALK) return state.layer === "omega" ? "no alkalinity data, so no Ω" : "no alkalinity data";
+      return formatValue(v, layer);
     }
+    // Is the calculator's "Use local alkalinity" box ticked? Then the Ω layer uses GLODAP's values too, once loaded.
+    function wantLocal() { return !!(useAlkEl && useAlkEl.checked); }
+    function useLocal() { return wantLocal() && !!(grids && grids.alkalinity); }
     // The calculator's CO2 now (the Ω layer follows it), or 425 ppm when there is no calculator.
     function currentCo2() {
       var el = document.getElementById("co2"), v = el ? Number(el.value) : NaN;
@@ -361,8 +419,10 @@ var OceanGlobe = (function () {
     var omega = null;            // the Ω grid, worked out when the Ω layer is shown, again when CO2 changes
     function gridFor(name) {
       if (name !== "omega") return grids[name];
-      var co2 = currentCo2();
-      if (!omega || omega.co2 !== co2) omega = omegaGrid(co2, grids.temperature, grids.salinity, OceanChem);
+      var co2 = currentCo2(), local = useLocal();
+      if (!omega || omega.co2 !== co2 || omega.local !== local) {
+        omega = omegaGrid(co2, grids.temperature, grids.salinity, OceanChem, local ? grids.alkalinity : null);
+      }
       return omega.grid;
     }
     function omegaNow() { gridFor("omega"); return omega; }
@@ -490,16 +550,32 @@ var OceanGlobe = (function () {
         return;
       }
       var tempSet = setSlider("temp", t), salSet = setSlider("sal", s);
-      var notes = [];
+      var notes = [], alk = null, measured = false;
+      if (wantLocal() && document.getElementById("alk")) {        // also set the alkalinity slider, from GLODAP
+        var a = grids.alkalinity ? sampleSmooth(grids.alkalinity, lat, lon, true) : NaN;
+        measured = a > 0;
+        if (measured) {
+          alk = setSlider("alk", a).value;
+          notes.push("GLODAP alkalinity there is " + Math.round(alk) + " µmol/kg.");
+        } else {
+          alk = setSlider("alk", 2300).value;
+          notes.push(alkFailed ? "The alkalinity data couldn't be loaded, so the calculator uses 2300 µmol/kg."
+            : !grids.alkalinity ? "The alkalinity data is still loading, so for now the calculator uses 2300 µmol/kg."
+            : "There is no alkalinity data for this spot (striped gray on the Alkalinity map), so the calculator uses 2300 µmol/kg.");
+        }
+      }
       if (tempSet.outOfRange) {                        // only a few cells, by less than half a degree
         notes.push("That temperature is just outside the calculator's range (" + tempSet.low + " to " + tempSet.high +
                    " °C), so it uses " + tempSet.value.toFixed(1) + " °C.");
       }
-      if (salSet.value < 30) {
+      if (salSet.value < 30 && !measured) {                         // with measured alkalinity this warning is moot
         notes.push("Below 30 PSU the real alkalinity is probably lower than the model's 2300 µmol/kg, " +
                    "so treat the pH and Ω as a what-if: the real Ω is likely lower.");
       }
-      picked = { lat: lat, lon: lon, temperature: tempSet.value, salinity: salSet.value };
+      if (Math.abs(lat) >= 60) {
+        notes.push("Polar surface water usually holds less CO₂ than the air would put in it, which makes the real Ω higher than the model's.");
+      }
+      picked = { lat: lat, lon: lon, temperature: tempSet.value, salinity: salSet.value, alkalinity: alk };
       awaiting = true;                                 // follow the calculator's estimates while it matches this spot
       showPick("At " + where + ", average annual temperature is " + formatValue(t, { digits: 1, unit: "°C" }) +
                " and salinity is " + salSet.value.toFixed(1) + " PSU." + (notes.length ? " " + notes.join(" ") : ""), true);
@@ -514,6 +590,7 @@ var OceanGlobe = (function () {
       if (d.error) { resultText = "The calculator couldn't get an estimate; click the spot again to retry."; showEstimate(); return; }
       if (typeof d.pH !== "number") return;
       if (Math.abs(d.temp - picked.temperature) > 0.05 || Math.abs(d.sal - picked.salinity) > 0.05) return;   // not for this spot
+      if (picked.alkalinity !== null && !(Math.abs(d.alk - picked.alkalinity) <= 0.5)) return;          // nor this one
       var co2El = document.getElementById("co2");
       if (co2El && Math.round(d.co2) !== Number(co2El.value)) return;   // a late answer for an older CO2
       resultText = "Result: pH " + d.pH.toFixed(3) + ", Ω " + d.omega.toFixed(2) + ".";
@@ -532,7 +609,7 @@ var OceanGlobe = (function () {
 
     // If someone moves the temperature or salinity slider themselves, the calculator no longer
     // matches that spot, so take the ring and the message away.
-    ["temp", "sal"].forEach(function (id) {
+    ["temp", "sal", "alk"].forEach(function (id) {
       var slider = document.getElementById(id);
       if (!slider) return;
       slider.addEventListener("input", function () {
@@ -548,11 +625,19 @@ var OceanGlobe = (function () {
       var layer = LAYERS[state.layer];
       canvas.setAttribute("aria-label", "Globe colored by " + (layer ? layer.label.toLowerCase() : "nothing: plain Earth"));
       var isOmega = state.layer === "omega";
-      descriptionEl.textContent = !layer ? PLAIN_DESCRIPTION : isOmega ? (grids ? describeOmega(omegaNow()) : "Loading…") : layer.description;
+      var description = !layer ? PLAIN_DESCRIPTION : isOmega ? (grids ? describeOmega(omegaNow()) : "Loading…") : layer.description;
+      if (isOmega && grids && wantLocal() && !grids.alkalinity) {
+        description += alkFailed ? " The alkalinity data couldn't be loaded, so this uses the fixed 2300 µmol/kg."
+                                 : " The alkalinity data is still loading, so for now this uses the fixed 2300 µmol/kg.";
+      }
+      descriptionEl.textContent = description;
       legendEl.hidden = !layer;
       if (tooFreshEl) tooFreshEl.hidden = !isOmega;
+      if (noAlkEl) noAlkEl.hidden = !(state.layer === "alkalinity" || (isOmega && useLocal()));
       if (!layer) return;
-      legendTitle.textContent = isOmega ? "Aragonite saturation Ω at " + Math.round(currentCo2()) + " ppm CO₂" : layer.label + " (" + layer.unit + ")";
+      legendTitle.textContent = isOmega
+        ? "Aragonite saturation Ω at " + Math.round(currentCo2()) + " ppm CO₂" + (useLocal() ? ", GLODAP alkalinity" : "")
+        : layer.label + " (" + layer.unit + ")";
       legendBar.style.background = "linear-gradient(to right, " + layer.stops.join(", ") + ")";
       legendTicks.textContent = "";
       function label(text, fraction, cls) {
@@ -670,8 +755,17 @@ var OceanGlobe = (function () {
       sendToCalculator(state.lat, state.lon);
     });
 
+    var alkRadio = null;
     Array.prototype.forEach.call(document.querySelectorAll('input[name="layer"]'), function (radio) {
       if (radio.value === "omega" && typeof OceanChem === "undefined") { radio.disabled = true; return; }   // chem.js did not load
+      if (radio.value === "alkalinity") {                     // off until its data arrives
+        radio.disabled = true; alkRadio = radio;
+        if (radio.checked) {                                  // (a browser may bring back a choice from before a reload)
+          radio.checked = false;
+          var first = document.getElementById("layer-temperature");
+          if (first) first.checked = true;
+        }
+      }
       radio.addEventListener("change", function () {
         if (!radio.checked) return;
         state.layer = radio.value; applyLayer(); readoutEl.textContent = HINT;
@@ -686,6 +780,23 @@ var OceanGlobe = (function () {
       if (state.layer !== "omega" || !grids) return;
       applyLayer(); requestDraw(false);
     });
+
+    // Ticking or clearing "Use local alkalinity": the Ω layer switches, and a picked spot is sent again,
+    // so the calculator gets (or drops) that spot's alkalinity.
+    if (useAlkEl) useAlkEl.addEventListener("change", function () {
+      if (picked && grids) sendToCalculator(picked.lat, picked.lon);
+      if (state.layer === "omega" && grids) { applyLayer(); requestDraw(false); }
+    });
+
+    // The alkalinity grid is made once both files are here (it needs to know which cells are ocean).
+    function alkalinityReady() {
+      if (!grids || !alkList) return;
+      grids.alkalinity = alkalinityGrid(alkList, grids.ocean);
+      alkList = null;
+      if (alkRadio) alkRadio.disabled = false;
+      if (picked && wantLocal()) sendToCalculator(picked.lat, picked.lon);   // it was given 2300 while the data loaded
+      if (state.layer === "omega") { applyLayer(); requestDraw(false); }
+    }
 
     if (window.ResizeObserver) new ResizeObserver(function () { requestDraw(false); }).observe(canvas);
     else window.addEventListener("resize", function () { requestDraw(false); });
@@ -714,6 +825,7 @@ var OceanGlobe = (function () {
           ocean[n] = (temperature[n] === temperature[n] || salinity[n] === salinity[n]) ? 1 : NaN;
         }
         grids = { temperature: temperature, salinity: salinity, ocean: ocean };
+        alkalinityReady();
         statusEl.textContent = "";
         statusEl.hidden = true;
         if (state.layer === "omega") applyLayer();     // its description needs the data
@@ -723,6 +835,23 @@ var OceanGlobe = (function () {
         loadFailed = true;
         statusEl.hidden = false;
         statusEl.textContent = "Couldn't load the ocean data. Reload the page to try again.";
+      });
+
+    fetch(ALK_URL)
+      .then(function (response) {
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        return response.json();
+      })
+      .then(function (data) {
+        var list = data && data.alkalinity_umol_kg;
+        if (!list || list.length !== NLON * NLAT) throw new Error("unexpected data");
+        alkList = list;
+        alkalinityReady();
+      })
+      .catch(function () {
+        alkFailed = true;                    // the Alkalinity button stays off; the Ω layer keeps the fixed 2300
+        if (picked && wantLocal()) sendToCalculator(picked.lat, picked.lon);   // "still loading" becomes "couldn't be loaded"
+        if (state.layer === "omega" && grids) applyLayer();
       });
   }
 
@@ -741,6 +870,7 @@ var OceanGlobe = (function () {
     wrapLon: wrapLon, viewToLatLon: viewToLatLon, latLonToView: latLonToView,
     cellIndex: cellIndex, sampleSmooth: sampleSmooth, buildLut: buildLut, colorAt: colorAt,
     renderGlobe: renderGlobe, formatLat: formatLat, formatLon: formatLon, formatValue: formatValue,
-    omegaGrid: omegaGrid, describeOmega: describeOmega, SAL_MIN: SAL_MIN
+    omegaGrid: omegaGrid, describeOmega: describeOmega, alkalinityGrid: alkalinityGrid, SAL_MIN: SAL_MIN,
+    FRESH: FRESH, NO_ALK: NO_ALK, NO_ALK_STRIPES: NO_ALK_STRIPES
   };
 })();

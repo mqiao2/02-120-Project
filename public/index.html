@@ -140,6 +140,11 @@
     .legend-land { max-width: 520px; margin: .25rem auto 0; font-size: .8rem; color: var(--muted); }
     .swatch { display: inline-block; width: .9rem; height: .9rem; border-radius: 3px; vertical-align: -.1rem; margin-right: .35rem; background: #c4bfae; border: 1px solid var(--muted); }
     .swatch-fresh { background: #8c8c8c; margin-left: .75rem; }
+    .swatch-no-alk { background: repeating-linear-gradient(45deg, #969696 0 3px, #696969 3px 6px); margin-left: .75rem; }
+    .check { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+    .check input { width: 1.1rem; height: 1.1rem; margin: 0; accent-color: var(--accent); }
+    .check label { display: inline; }
+    input[type=range]:disabled { opacity: .5; }
   </style>
 </head>
 <body>
@@ -170,6 +175,17 @@
           <a href="#globe-title">Go to the globe</a></p>
       </div>
 
+      <div class="control">
+        <div class="check">
+          <input id="use-alk" type="checkbox" autocomplete="off" aria-describedby="alk-hint">
+          <label for="use-alk">Use local alkalinity</label>
+        </div>
+        <label for="alk">Total alkalinity <span id="alk-out" class="value-out" aria-hidden="true"></span></label>
+        <input id="alk" type="range" min="1000" max="2700" step="1" value="2300" autocomplete="off" disabled>
+        <p id="alk-hint" class="hint">Off: fixed at 2300 µmol/kg, a typical open-ocean value. On: move the slider, or
+          click the globe to use GLODAP's alkalinity there. The globe's Ω map then uses each spot's own value too.</p>
+      </div>
+
       <div class="result">
         <div role="status">
           <div class="results">
@@ -188,16 +204,26 @@
       </div>
     </div>
 
-    <p class="note">Assumes surface water is in equilibrium with the air and total
-      alkalinity is fixed at 2300 µmol/kg, a typical open-ocean value. In the real ocean
-      alkalinity rises and falls with salinity, so treat low-salinity settings (below
-      about 30) as what-ifs. Not for estuaries or coastal water. Estimates only:
+    <p class="note">Assumes surface water is in equilibrium with the air and, unless you tick
+      “Use local alkalinity”, that total alkalinity is fixed at 2300 µmol/kg. In the real ocean
+      alkalinity rises and falls with salinity, so with the fixed value treat low-salinity settings
+      (below about 30) as what-ifs. Not for estuaries or coastal water. Estimates only:
       published equilibrium constants disagree by about 0.01 pH (up to 0.05 in the
       coldest and warmest water) and by a few percent in Ω.</p>
     <p class="note">Ω (omega) is the aragonite saturation state. Below 1, seawater is
       corrosive to aragonite, the mineral in shells such as those of pteropods. Above 1,
       aragonite does not dissolve, but shell-building organisms are already stressed as
       Ω falls.</p>
+    <p class="note"><strong>Near the poles, the model's Ω is too low.</strong> Measured alkalinity and
+      carbon (GLODAP, adjusted to 2002) show that polar surface water is not in equilibrium with the air:
+      north of 66°N it holds about 25% less CO₂ than equilibrium would give, and south of 60°S about 12%
+      less, because plankton take it up in summer and sea ice blocks gas exchange (most polar samples are
+      from summer cruises, so these are summer figures). Mid-latitude water is closer to equilibrium, and
+      tropical water is in it. Compared with GLODAP's own Ω for 2002, the model is about 0.3 too low in the
+      Arctic. Using local alkalinity does not fix this: it makes the Arctic gap larger (about 0.45), because
+      the Arctic's low alkalinity is offset in nature by the missing CO₂, which the model leaves out. In the
+      tropics, local alkalinity brings the model closer to GLODAP (typical error 0.27 down to 0.23).
+      Details: code/compare_glodap.py.</p>
 
     </div>
 
@@ -214,6 +240,8 @@
         <label for="layer-salinity">Salinity</label>
         <input id="layer-omega" type="radio" name="layer" value="omega">
         <label for="layer-omega">Saturation (Ω)</label>
+        <input id="layer-alkalinity" type="radio" name="layer" value="alkalinity" disabled>
+        <label for="layer-alkalinity">Alkalinity</label>
         <input id="layer-plain" type="radio" name="layer" value="plain">
         <label for="layer-plain">Plain</label>
       </div>
@@ -248,13 +276,21 @@
         <div id="legend-ticks" class="legend-ticks"></div>
       </div>
       <p class="legend-land"><span class="swatch"></span>Land, or no data
-        <span id="legend-too-fresh" hidden><span class="swatch swatch-fresh"></span>Too fresh to estimate Ω</span></p>
+        <span id="legend-too-fresh" hidden><span class="swatch swatch-fresh"></span>Too fresh to estimate Ω</span>
+        <span id="legend-no-alk" hidden><span class="swatch swatch-no-alk"></span>No alkalinity data</span></p>
 
       <p class="note">Data: NOAA World Ocean Atlas 2023, 1° grid: the average of all measurements
         from 1955 to 2022, over all months, at the surface (the top 10 m where the surface value
         is missing). Temperature colors: ColorBrewer RdYlBu. Salinity colors: viridis, a scale
         that stays readable for color-blind viewers. Saturation (Ω) is worked out for each grid cell with the same
         equations as the calculator, at the calculator's CO₂; colors: ColorBrewer RdBu, split at Ω = 1.</p>
+      <p class="note">Alkalinity data: GLODAPv2.2016b mapped climatology (Lauvset et al., 2016; CC BY 4.0), the
+        surface values mapped from measurements made in 1972–2013; colors: ColorBrewer YlGnBu. It has no values for
+        Hudson Bay, most of the Gulf of Mexico and the Red Sea, and about half of the Caribbean and the Beaufort Sea,
+        and a quarter of the water around the North Pole. The Black Sea, the Baltic and the Persian Gulf are left out
+        too: they were hardly measured, and GLODAP's map fills them in from the open sea next door (the real Black Sea
+        is near 3200 µmol/kg, not 2600). All these show as striped gray. With “Use local alkalinity” ticked, those
+        spots get no Ω on the globe, and 2300 µmol/kg in the calculator.</p>
     </section>
 
     <section class="card co2-card" aria-labelledby="co2-title">
@@ -295,7 +331,9 @@
       co2:  {el: document.getElementById("co2"),  out: document.getElementById("co2-out"),  unit: " ppm", digits: 0},
       temp: {el: document.getElementById("temp"), out: document.getElementById("temp-out"), unit: " °C",  digits: 1},
       sal:  {el: document.getElementById("sal"),  out: document.getElementById("sal-out"),  unit: " PSU", digits: 1},
+      alk:  {el: document.getElementById("alk"),  out: document.getElementById("alk-out"),  unit: " µmol/kg", digits: 0},
     };
+    const useAlk = document.getElementById("use-alk");
     const phEl = document.getElementById("ph");
     const omegaEl = document.getElementById("omega");
     const saturationEl = document.getElementById("saturation");
@@ -305,7 +343,7 @@
 
     function showValues() {
       for (const {el, out, unit, digits} of Object.values(inputs)) {
-        const text = Number(el.value).toFixed(digits) + unit;
+        const text = Number(el.value).toFixed(digits) + unit + (el.disabled ? " (fixed)" : "");
         out.textContent = text;
         el.setAttribute("aria-valuetext", text);   // a screen reader says "425 ppm", not a bare number
       }
@@ -330,7 +368,9 @@
       if (controller) controller.abort();          // drop an older, slower request
       controller = new AbortController();
       const query = new URLSearchParams();
-      for (const [name, {el}] of Object.entries(inputs)) query.set(name, el.value);
+      for (const [name, {el}] of Object.entries(inputs)) {
+        if (name !== "alk" || useAlk.checked) query.set(name, el.value);   // without alk, the API uses 2300
+      }
       try {
         const response = await fetch("/api/ph?" + query, {signal: controller.signal});
         const data = await response.json();
@@ -359,6 +399,19 @@
       });
     }
 
+    // "Use local alkalinity": switches the alkalinity slider on, or back to the fixed 2300
+    function applyUseAlk() {
+      inputs.alk.el.disabled = !useAlk.checked;
+      if (!useAlk.checked) inputs.alk.el.value = "2300";
+    }
+    useAlk.addEventListener("change", () => {
+      applyUseAlk();
+      showValues();
+      clearTimeout(timer);
+      timer = setTimeout(updateResults, 120);
+    });
+
+    applyUseAlk();
     showValues();
     updateResults();
   </script>

@@ -2,6 +2,7 @@
 
 GET /api/ph?co2=425&temp=15&sal=35 returns the surface-ocean pH and the
 aragonite saturation state (omega) as JSON, along with the inputs it used.
+Add &alk=2150 to use that total alkalinity (µmol/kg) instead of the fixed 2300.
 The page with the sliders is public/index.html.
 
 Keep app.py, requirements.txt, .python-version and public/ at the top level of
@@ -21,6 +22,9 @@ import ocean_chem as oc  # noqa: E402
 
 # Allowed (min, max) for each input. The sliders in public/index.html match.
 LIMITS = {"co2": (250, 1100), "temp": (-2, 35), "sal": (20, 42)}
+# Optional inputs: (min, max) and the value used when it is left out. The alkalinity range covers
+# every surface value in GLODAP's map (1070 to 2636 µmol/kg).
+OPTIONAL = {"alk": (1000, 2700, oc.TOTAL_ALKALINITY * 1e6)}
 
 app = Flask(__name__, static_folder=None)
 
@@ -32,8 +36,12 @@ def read_inputs(args):
     number, or is outside LIMITS.
     """
     values = {}
-    for name, (low, high) in LIMITS.items():
+    ranges = dict(LIMITS, **{name: (low, high) for name, (low, high, _) in OPTIONAL.items()})
+    for name, (low, high) in ranges.items():
         if name not in args:
+            if name in OPTIONAL:
+                values[name] = OPTIONAL[name][2]
+                continue
             raise ValueError(f"missing '{name}'")
         try:
             value = float(args[name])
@@ -51,7 +59,7 @@ def api_ph():
         values = read_inputs(request.args)
     except ValueError as err:
         return jsonify(error=str(err)), 400
-    result = oc.carbonate_system(values["co2"], values["temp"], values["sal"])
+    result = oc.carbonate_system(values["co2"], values["temp"], values["sal"], alk=values["alk"] * 1e-6)
     return jsonify(pH=float(result["pH"]), omega=float(result["omega"]), **values)
 
 

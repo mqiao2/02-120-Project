@@ -65,27 +65,30 @@ var OceanChem = (function () {
   function calcium(s) { return 0.02128 / 40.087 * s / 1.80655; }   // Riley and Tongudai 1967
 
   // Solve the alkalinity equation for [H+] by bisection on pH (6 to 10, 60 halvings), exactly as
-  // ocean_chem.carbonate_system does. Returns { pH, dic, co3, omega }.
-  function carbonate(xco2, t, s) {
+  // ocean_chem.carbonate_system does. alk is total alkalinity in mol/kg (leave it out for the fixed
+  // 2300 µmol/kg). Returns { pH, dic, co3, omega }.
+  function carbonate(xco2, t, s, alk) {
+    var target = alk === undefined ? TOTAL_ALKALINITY : alk;
     var co2 = k0(t, s) * xco2ToFco2(xco2, t, s);
     var K1 = k1(t, s), K2 = k2(t, s), KB = kb(t, s), KW = kw(t, s), BT = totalBoron(s);
     var lo = 6.0, hi = 10.0;
     for (var i = 0; i < 60; i++) {
       var mid = (lo + hi) / 2, h = Math.pow(10, -mid);
       var alk = K1 * co2 / h + 2 * K1 * K2 * co2 / (h * h) + BT * KB / (KB + h) + KW / h - h;
-      if (alk > TOTAL_ALKALINITY) hi = mid; else lo = mid;
+      if (alk > target) hi = mid; else lo = mid;
     }
     var ph = (lo + hi) / 2, hh = Math.pow(10, -ph);
     var hco3 = K1 * co2 / hh, co3 = K1 * K2 * co2 / (hh * hh);
     return { pH: ph, dic: co2 + hco3 + co3, co3: co3, omega: calcium(s) * co3 / kspAragonite(t, s) };
   }
 
-  // Ω for every cell of a grid, given matching temperature and salinity grids (NaN = no data).
-  function omegaGrid(xco2, temperature, salinity) {
+  // Ω for every cell of a grid, given matching temperature and salinity grids (NaN = no data),
+  // and optionally an alkalinity grid in µmol/kg (NaN there also means no Ω).
+  function omegaGrid(xco2, temperature, salinity, alkalinity) {
     var out = new Float32Array(temperature.length);
     for (var n = 0; n < out.length; n++) {
-      var t = temperature[n], s = salinity[n];
-      out[n] = (t === t && s === s) ? carbonate(xco2, t, s).omega : NaN;
+      var t = temperature[n], s = salinity[n], a = alkalinity ? alkalinity[n] * 1e-6 : TOTAL_ALKALINITY;
+      out[n] = (t === t && s === s && a === a) ? carbonate(xco2, t, s, a).omega : NaN;
     }
     return out;
   }

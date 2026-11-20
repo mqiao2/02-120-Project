@@ -1,6 +1,7 @@
-# Everything for working on the project locally:
+# Everything for working on the project locally (h5py reads the GLODAP files):
 #   pip install -r code/requirements/requirements-dev.txt
 # The top-level requirements.txt (what Vercel installs for the website) is kept to the minimum.
 -r ../../requirements.txt
 pandas
 matplotlib
+h5py

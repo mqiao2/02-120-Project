@@ -126,7 +126,8 @@ function makeEnv(sources, options) {
   ["west", "east", "north", "south", "zoom-in", "zoom-out", "reset"].forEach(function (name) {
     env.buttons[name] = add("BUTTON", "globe-" + name);
   });
-  env.radios = ["temperature", "salinity", "plain"].map(function (v) {
+  env.tooFresh = add("SPAN", "legend-too-fresh"); env.tooFresh.hidden = true;
+  env.radios = ["temperature", "salinity", "omega", "plain"].map(function (v) {
     var r = new Element("INPUT", "layer-" + v); r.value = v; r.name = "layer"; r.checked = (v === "temperature"); return r;
   });
   env.useCenter = add("BUTTON", "globe-use-center");
@@ -149,7 +150,7 @@ function makeEnv(sources, options) {
     return e;
   }
   env.sliders = options.noCalculator ? {} : {
-    co2: makeSlider("co2", 250, 1000, 1, 425),
+    co2: makeSlider("co2", 250, 1100, 1, 425),
     temp: makeSlider("temp", -2, 35, 0.1, 15),
     sal: makeSlider("sal", 20, 42, 0.1, 35)
   };

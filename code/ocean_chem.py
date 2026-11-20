@@ -148,3 +148,30 @@ def carbonate_system(xco2_ppm, t_c, s, alk=TOTAL_ALKALINITY):
         "co3": co3,
         "omega": calcium(s) * co3 / ksp_aragonite(t_c, s),
     }
+
+
+def fco2_from_alk_dic(alk, dic, t_c, s):
+    """The other way round: the CO2 fugacity (atm) of water with this alkalinity and DIC (both mol/kg).
+
+    Used to check the equilibrium assumption against measured alkalinity and DIC
+    (code/compare_glodap.py): water in equilibrium with the air has the air's fCO2.
+    Solves the same alkalinity equation, with the carbonate terms written using DIC.
+    """
+    alk, dic, t_c, s = np.broadcast_arrays(*(np.asarray(x, float) for x in (alk, dic, t_c, s)))
+    K1, K2, KB, KW = k1(t_c, s), k2(t_c, s), kb(t_c, s), kw(t_c, s)
+    BT = total_boron(s)
+
+    def alk_of(h):
+        carbonate = dic * (K1 * h + 2 * K1 * K2) / (h**2 + K1 * h + K1 * K2)
+        return carbonate + BT * KB / (KB + h) + KW / h - h
+
+    lo = np.full(alk.shape, 6.0)
+    hi = np.full(alk.shape, 10.0)
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        too_high = alk_of(10.0 ** -mid) > alk
+        hi = np.where(too_high, mid, hi)
+        lo = np.where(too_high, lo, mid)
+    h = 10.0 ** -((lo + hi) / 2)
+    co2 = dic * h**2 / (h**2 + K1 * h + K1 * K2)
+    return co2 / k0(t_c, s)
